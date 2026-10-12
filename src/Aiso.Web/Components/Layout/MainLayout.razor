@@ -1,0 +1,23 @@
+@inherits LayoutComponentBase
+
+<div class="shell">
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-mark" aria-hidden="true">◆</span>
+            <span>AISO <strong>Control Center</strong></span>
+        </div>
+        <div class="topbar-right">
+            <AuthorizeView>
+                <span class="muted user">@context.User.Identity?.Name</span>
+            </AuthorizeView>
+            <ThemeToggle />
+        </div>
+    </header>
+    <main class="content">
+        @Body
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unexpected error occurred. <a href="." class="reload">Reload</a>
+</div>

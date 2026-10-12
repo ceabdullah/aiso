@@ -1,0 +1,116 @@
+@inject DashboardService Dashboard
+
+@if (_summary is null)
+{
+    <p class="muted">Loading…</p>
+    return;
+}
+
+<div class="kpis">
+    <div class="kpi">
+        <div class="kpi-label">Average AISO score</div>
+        <div class="kpi-value"><ScoreBadge Value="AverageScore" Threshold="_summary.AlertThreshold" /></div>
+        <div class="kpi-foot muted">threshold @_summary.AlertThreshold</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-label">Channels below threshold</div>
+        <div class="kpi-value">@BelowThreshold <span class="muted">/ @_summary.Targets.Count</span></div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-label">Last pipeline run</div>
+        <div class="kpi-value small">@(_summary.LastRunUtc?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? "never") <span class="muted">UTC</span></div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-label">Plans published (30d)</div>
+        <div class="kpi-value">@_summary.PlansPublished30d</div>
+        <div class="kpi-foot muted">@_summary.AuditsInRetention audits in retention</div>
+    </div>
+</div>
+
+<div class="toolbar">
+    <AuthorizeView Policy="@AisoPolicies.CanEdit">
+        <button class="btn btn-primary" disabled="@(_summary.RunRequested || _busy)" @onclick="RequestRunAsync">
+            @(_summary.RunRequested ? "Run queued — worker picks it up within a minute" : "Run audit now")
+        </button>
+    </AuthorizeView>
+    <button class="btn btn-ghost" @onclick="LoadAsync">Refresh</button>
+</div>
+
+<div class="cards">
+    @foreach (var t in _summary.Targets)
+    {
+        <article class="card">
+            <header class="card-head">
+                <div>
+                    <div class="card-title">@t.DisplayName</div>
+                    <a class="muted mono small" href="@t.BaseUrl" target="_blank" rel="noopener">@t.BaseUrl</a>
+                </div>
+                <span class="chip">@ChannelLabel(t.ChannelKind)</span>
+            </header>
+            <div class="card-score">
+                <ScoreBadge Value="t.OverallScore" Threshold="_summary.AlertThreshold" />
+                @if (t.OverallScore is { } now && t.PreviousOverallScore is { } prev)
+                {
+                    var delta = now - prev;
+                    <span class="delta @(delta >= 0 ? "up" : "down")">@delta.ToString("+0.0;-0.0;0.0", CultureInfo.InvariantCulture)</span>
+                }
+            </div>
+            <dl class="metrics">
+                <dt>On-page structure</dt><dd><Bar Value="t.OnPageScore" /></dd>
+                <dt>LLM prompt visibility</dt><dd><Bar Value="t.PromptVisibilityScore" /></dd>
+            </dl>
+            <footer class="card-foot muted small">
+                @t.ActivePrompts active prompt(s) ·
+                @(t.LastAuditUtc is null ? "not audited yet" : $"audited {t.LastAuditUtc:yyyy-MM-dd HH:mm} UTC")
+                @if (t.LastStatus == AuditStatus.PartiallySucceeded)
+                {
+                    <span class="chip chip-warn">partial</span>
+                }
+            </footer>
+        </article>
+    }
+</div>
+
+@code {
+    private DashboardSummary? _summary;
+    private bool _busy;
+
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private decimal? AverageScore
+    {
+        get
+        {
+            var scored = _summary!.Targets.Where(t => t.OverallScore is not null).Select(t => t.OverallScore!.Value).ToList();
+            return scored.Count == 0 ? null : Math.Round(scored.Average(), 1);
+        }
+    }
+
+    private int BelowThreshold => _summary!.Targets.Count(t => t.OverallScore < _summary.AlertThreshold);
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() => _summary = await Dashboard.GetSummaryAsync();
+
+    private async Task RequestRunAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Dashboard.RequestRunAsync((await AuthState).User.Identity?.Name);
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string ChannelLabel(TargetChannelKind kind) => kind switch
+    {
+        TargetChannelKind.CoreWebPortal => "Web portal",
+        TargetChannelKind.DigitalChannel => "Digital channel",
+        TargetChannelKind.MobileAppStore => "iOS App Store",
+        _ => kind.ToString(),
+    };
+}

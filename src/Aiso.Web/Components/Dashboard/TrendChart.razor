@@ -1,0 +1,50 @@
+@* Dependency-free SVG line chart (no CDN access on the corporate network). *@
+<svg class="trend" viewBox="0 0 @W @H" preserveAspectRatio="none" role="img" aria-label="Overall AISO score over time">
+    @foreach (var y in new[] { 0, 25, 50, 75, 100 })
+    {
+        <line x1="@Pad" x2="@(W - Pad)" y1="@Y(y)" y2="@Y(y)" class="grid" />
+        @* Razor reserves <text>; emit the SVG element as markup. Values are numeric, not user input. *@
+        @((MarkupString)$"<text x=\"2\" y=\"{AxisY(y)}\" class=\"axis\">{y}</text>")
+    }
+    @for (var i = 0; i < Trends.Count; i++)
+    {
+        var trend = Trends[i];
+        <polyline class="series s@(i % 6)" points="@Points(trend)" />
+        @foreach (var p in trend.Points)
+        {
+            <circle class="dot s@(i % 6)" cx="@X(p.AtUtc)" cy="@Y(p.Overall)" r="2.5">
+                <title>@trend.DisplayName — @p.AtUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture): @p.Overall.ToString("0.0", CultureInfo.InvariantCulture)</title>
+            </circle>
+        }
+    }
+</svg>
+<div class="legend">
+    @for (var i = 0; i < Trends.Count; i++)
+    {
+        <span class="legend-item"><span class="swatch s@(i % 6)"></span>@Trends[i].DisplayName</span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<TargetTrend> Trends { get; set; } = [];
+
+    private const double W = 800, H = 220, Pad = 24;
+
+    private DateTime Min => Trends.SelectMany(t => t.Points).Min(p => p.AtUtc);
+    private DateTime Max => Trends.SelectMany(t => t.Points).Max(p => p.AtUtc);
+
+    private string X(DateTime at)
+    {
+        var span = (Max - Min).TotalSeconds;
+        var x = span <= 0 ? W / 2 : Pad + (at - Min).TotalSeconds / span * (W - 2 * Pad);
+        return x.ToString("0.#", CultureInfo.InvariantCulture);
+    }
+
+    private string Y(decimal score) => (H - Pad - (double)score / 100 * (H - 2 * Pad)).ToString("0.#", CultureInfo.InvariantCulture);
+
+    private string Y(int score) => Y((decimal)score);
+
+    private static string AxisY(int score) => (H - Pad - (double)score / 100 * (H - 2 * Pad) + 3).ToString("0.#", CultureInfo.InvariantCulture);
+
+    private string Points(TargetTrend t) => string.Join(' ', t.Points.Select(p => $"{X(p.AtUtc)},{Y(p.Overall)}"));
+}

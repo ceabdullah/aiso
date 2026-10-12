@@ -1,0 +1,10 @@
+<div class="bar" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@(Value ?? 0)">
+    <div class="bar-fill" style="width:@Width"></div>
+    <span class="bar-label">@(Value?.ToString("0.0", CultureInfo.InvariantCulture) ?? "—")</span>
+</div>
+
+@code {
+    [Parameter] public decimal? Value { get; set; }
+
+    private string Width => string.Create(CultureInfo.InvariantCulture, $"{Math.Clamp(Value ?? 0, 0, 100)}%");
+}

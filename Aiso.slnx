@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Aiso.AppHost/Aiso.AppHost.csproj" />
+    <Project Path="src/Aiso.Domain/Aiso.Domain.csproj" />
+    <Project Path="src/Aiso.Infrastructure/Aiso.Infrastructure.csproj" />
+    <Project Path="src/Aiso.Migrations.Oracle/Aiso.Migrations.Oracle.csproj" />
+    <Project Path="src/Aiso.Migrations.SqlServer/Aiso.Migrations.SqlServer.csproj" />
+    <Project Path="src/Aiso.MigrationService/Aiso.MigrationService.csproj" />
+    <Project Path="src/Aiso.ServiceDefaults/Aiso.ServiceDefaults.csproj" />
+    <Project Path="src/Aiso.Web/Aiso.Web.csproj" />
+    <Project Path="src/Aiso.Worker/Aiso.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Aiso.Tests/Aiso.Tests.csproj" />
+  </Folder>
+</Solution>

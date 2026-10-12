@@ -1,0 +1,16 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.5.4">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>aiso-apphost-c41e09</UserSecretsId>
+    <!-- Works with plain `dotnet run`; the optional Aspire CLI bundle is not required on-prem. -->
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);ASPIRE010</MSBuildWarningsAsMessages>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.SqlServer" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Aiso.MigrationService\Aiso.MigrationService.csproj" />
+    <ProjectReference Include="..\Aiso.Worker\Aiso.Worker.csproj" />
+    <ProjectReference Include="..\Aiso.Web\Aiso.Web.csproj" />
+  </ItemGroup>
+</Project>

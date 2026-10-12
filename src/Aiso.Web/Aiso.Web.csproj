@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RootNamespace>Aiso.Web</RootNamespace>
+    <UserSecretsId>aiso-web-8b2f44</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Aiso.ServiceDefaults\Aiso.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Aiso.Infrastructure\Aiso.Infrastructure.csproj" />
+    <ProjectReference Include="..\Aiso.Migrations.SqlServer\Aiso.Migrations.SqlServer.csproj" />
+    <ProjectReference Include="..\Aiso.Migrations.Oracle\Aiso.Migrations.Oracle.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Aiso.Tests" />
+  </ItemGroup>
+</Project>
