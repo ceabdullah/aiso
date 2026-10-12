@@ -17,7 +17,7 @@ public class ClaudeCliOrchestratorTests
         var psi = ClaudeCliOrchestrator.BuildStartInfo(new ClaudeCliOptions(), Llm, Workspace);
         var args = psi.ArgumentList.ToList();
 
-        Assert.Equal("claude.exe", psi.FileName);
+        Assert.Equal(OperatingSystem.IsWindows() ? "claude.exe" : "claude", psi.FileName);
         Assert.Equal(Workspace.RootPath, psi.WorkingDirectory);
         Assert.True(psi.RedirectStandardInput);
         Assert.Contains("-p", args);

@@ -165,7 +165,7 @@ public sealed class ClaudeCliOrchestrator(
 
         var workingDirectory = string.IsNullOrWhiteSpace(cli.WorkingDirectory) ? workspace.RootPath : cli.WorkingDirectory;
 
-        var psi = new ProcessStartInfo(cli.ExecutablePath)
+        var psi = new ProcessStartInfo(cli.ResolvedExecutablePath)
         {
             WorkingDirectory = workingDirectory,
             UseShellExecute = false,

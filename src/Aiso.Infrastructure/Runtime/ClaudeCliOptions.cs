@@ -14,6 +14,15 @@ public sealed class ClaudeCliOptions
     /// <summary>Executable name on PATH or an absolute path, e.g. <c>C:\Tools\claude\claude.exe</c>.</summary>
     public string ExecutablePath { get; set; } = "claude.exe";
 
+    /// <summary>
+    /// The executable to start. The configured default <c>claude.exe</c> is mapped to <c>claude</c> on macOS and Linux,
+    /// so the same configuration works on a developer Mac and on the Windows server.
+    /// </summary>
+    public string ResolvedExecutablePath =>
+        !OperatingSystem.IsWindows() && string.Equals(ExecutablePath, "claude.exe", StringComparison.OrdinalIgnoreCase)
+            ? "claude"
+            : ExecutablePath;
+
     /// <summary>Working directory for the CLI. Defaults to the workspace root when empty.</summary>
     public string? WorkingDirectory { get; set; }
 

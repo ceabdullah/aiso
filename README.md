@@ -54,6 +54,8 @@ to produce language-specific Markdown remediation plans.
 
 ## Running
 
+**On a Mac:** run `./scripts/setup-mac.sh` once, then `dotnet run --project src/Aiso.AppHost`. See [docs/LOCAL-MAC.md](docs/LOCAL-MAC.md).
+
 ```bash
 # Development (cloud or laptop): SQL Server container + all nodes
 dotnet user-secrets --project src/Aiso.AppHost set Parameters:sql-password '<strong password>'

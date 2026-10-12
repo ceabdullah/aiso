@@ -13,7 +13,19 @@ var builder = DistributedApplication.CreateBuilder(args);
 
 var provider = builder.Configuration["Aiso:Database:Provider"] ?? "SqlServer";
 var useOracle = string.Equals(provider, "Oracle", StringComparison.OrdinalIgnoreCase);
-var workspaceRoot = builder.Configuration["Aiso:Workspace:RootPath"] ?? @"C:\PROJECTS\LOCAL LLM DEMO";
+// The default workspace is the on-prem Windows path; on macOS/Linux development machines a Windows path
+// can't exist, so fall back to ~/AISO-Workspace unless a non-Windows path is configured.
+var configuredRoot = builder.Configuration["Aiso:Workspace:RootPath"];
+var workspaceRoot = OperatingSystem.IsWindows()
+    ? configuredRoot ?? @"C:\PROJECTS\LOCAL LLM DEMO"
+    : configuredRoot is { Length: > 0 } root && !root.Contains('\\', StringComparison.Ordinal)
+        ? root
+        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "AISO-Workspace");
+Directory.CreateDirectory(workspaceRoot);
+
+// claude.exe analysis needs the corporate LiteLLM gateway, which a developer laptop can't reach.
+// Off by default outside Windows so no request is sent with a placeholder key; set Aiso:ClaudeCli:Enabled to override.
+var claudeCliEnabled = builder.Configuration["Aiso:ClaudeCli:Enabled"] ?? (OperatingSystem.IsWindows() ? "true" : "false");
 
 // Secrets: supply via `dotnet user-secrets set Parameters:llm-api-key <key>` (dev) or the
 // deployment environment (Parameters__llm-api-key). Never commit them.
@@ -56,7 +68,8 @@ var worker = builder.AddProject<Projects.Aiso_Worker>("worker")
     .WithEnvironment("Aiso__Workspace__RootPath", workspaceRoot)
     .WithEnvironment("Aiso__Llm__BaseUrl", llmBaseUrl)
     .WithEnvironment("Aiso__Llm__Model", llmModel)
-    .WithEnvironment("Aiso__Llm__ApiKey", llmApiKey);
+    .WithEnvironment("Aiso__Llm__ApiKey", llmApiKey)
+    .WithEnvironment("Aiso__ClaudeCli__Enabled", claudeCliEnabled);
 
 foreach (var (engine, key) in engineKeys)
 {
