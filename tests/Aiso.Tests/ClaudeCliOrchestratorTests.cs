@@ -113,7 +113,8 @@ public class ClaudeCliOrchestratorTests
         var parts = result.ResultText.Split('|');
         Assert.Equal("https://llm-gateway.corp.local", parts[0]);
         Assert.Equal(System.Text.Encoding.UTF8.GetByteCount(prompt).ToString(System.Globalization.CultureInfo.InvariantCulture), parts[1]);
-        Assert.Equal(dir.FullName, parts[2]);
+        // The shell reports the physical path: on macOS the temp folder /var/... is really /private/var/...
+        Assert.Equal(PhysicalPath(dir.FullName), parts[2]);
     }
 
     [Fact]
@@ -125,5 +126,18 @@ public class ClaudeCliOrchestratorTests
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => orchestrator.RunAsync("hi", TestContext.Current.CancellationToken));
         Assert.Contains("ExecutablePath", ex.Message, StringComparison.Ordinal);
+    }
+
+    // Resolves symbolic links in every segment of an absolute path, like realpath(1).
+    private static string PhysicalPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var current = Path.GetPathRoot(full)!;
+        foreach (var segment in full[current.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, segment);
+            if (new DirectoryInfo(current).ResolveLinkTarget(returnFinalTarget: true) is { } target) current = target.FullName;
+        }
+        return current;
     }
 }

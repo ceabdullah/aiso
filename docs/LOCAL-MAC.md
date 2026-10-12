@@ -21,6 +21,12 @@ The script installs only what is missing, using Homebrew:
 | Git | source control |
 | Claude Code CLI | only with `--with-claude`; not needed for the dashboard |
 
+**Intel Macs:** Homebrew's installer no longer supports Intel. If Homebrew isn't already installed, the script
+gets the tools from the vendors instead: the .NET SDK through Microsoft's `dotnet-install.sh` (into `~/.dotnet`,
+added to `~/.zprofile`), and Docker Desktop and VS Code as downloads that must carry the vendor's Apple
+signature and notarization before they are copied to `/Applications`. Docker Desktop and the SQL Server
+image run natively on Intel, so there's no Rosetta setting to check.
+
 It then trusts the HTTPS development certificate, restores packages, stores a generated SQL Server password in
 .NET user secrets, creates `~/AISO-Workspace`, and builds and tests the solution.
 
