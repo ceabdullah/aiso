@@ -1,7 +1,7 @@
 namespace Aiso.Domain.Entities;
 
 /// <summary>
-/// One test prompt answered by one AI answer engine (ChatGPT, Gemini, Perplexity, Claude, internal model)
+/// One test prompt answered by one AI answer engine (ChatGPT, Gemini, Perplexity, Claude)
 /// during an audit run. Visibility counts a brand mention in the answer or a citation of an owned domain.
 /// </summary>
 public class EngineProbeResult : EntityBase

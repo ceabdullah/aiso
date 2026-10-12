@@ -2,9 +2,6 @@ namespace Aiso.Infrastructure.Engines;
 
 public enum AnswerEngineKind
 {
-    /// <summary>Anthropic Messages API without tools — used for the internal model behind the LiteLLM gateway.</summary>
-    AnthropicMessages = 0,
-
     /// <summary>Claude with the server-side web search tool.</summary>
     AnthropicWebSearch = 1,
 
@@ -18,7 +15,10 @@ public enum AnswerEngineKind
     PerplexitySonar = 4,
 }
 
-/// <summary>One answer engine to probe. Bound from <c>Aiso:Engines:{key}</c>.</summary>
+/// <summary>
+/// One external AI answer engine to probe. Bound from <c>Aiso:Engines:{key}</c>.
+/// The internal model behind the LiteLLM gateway is not an answer engine: it only runs <c>claude.exe</c>.
+/// </summary>
 public sealed class AnswerEngineDefinition
 {
     public string DisplayName { get; set; } = string.Empty;
@@ -57,7 +57,7 @@ public sealed class AnswerEngineDefinition
         AnswerEngineKind.OpenAiResponses => "https://api.openai.com",
         AnswerEngineKind.GeminiGrounded => "https://generativelanguage.googleapis.com",
         AnswerEngineKind.PerplexitySonar => "https://api.perplexity.ai",
-        _ => string.Empty, // the internal engine falls back to Aiso:Llm
+        _ => string.Empty,
     };
 }
 

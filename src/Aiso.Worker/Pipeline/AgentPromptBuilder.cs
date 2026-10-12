@@ -15,7 +15,7 @@ public static class AgentPromptBuilder
 
             Analyze the scraped results in {{runFolderRelative}}/ :
               - {{target.Code}}.scrape.json  : on-page structural signals with a weighted score breakdown ("signals")
-              - {{target.Code}}.prompts.json : answers that AI answer engines (ChatGPT, Gemini, Perplexity, Claude, the internal model)
+              - {{target.Code}}.prompts.json : answers that AI answer engines (ChatGPT, Gemini, Perplexity, Claude)
                 gave to customer questions: whether the brand was mentioned, and which web sources each engine cited
             Earlier runs may exist under data/ for trend comparison; read them only if useful.
 

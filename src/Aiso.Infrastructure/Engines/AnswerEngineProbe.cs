@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Aiso.Domain.Entities;
-using Aiso.Infrastructure.Llm;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -31,13 +30,12 @@ public sealed record EngineProbeOutcome(
 }
 
 /// <summary>
-/// Generative-engine visibility probe. Asks every active test prompt on every configured answer engine
+/// Generative-engine visibility probe. Asks every active test prompt on every configured external answer engine
 /// (engines in parallel, prompts one after another per engine to respect vendor rate limits) and records
 /// whether each answer names the brand or cites one of its domains.
 /// </summary>
 public sealed class AnswerEngineProbe(
     IOptions<AnswerEngineOptions> options,
-    IOptions<LlmGatewayOptions> gateway,
     IEnumerable<IAnswerEngineClient> clients,
     ILogger<AnswerEngineProbe> logger)
 {
@@ -57,7 +55,7 @@ public sealed class AnswerEngineProbe(
             {
                 logger.LogWarning("No client for engine {Engine} of kind {Kind}.", key, definition.Kind);
             }
-            else if (AnthropicEngineClient.Resolve(definition, gateway.Value).IsUsable)
+            else if (definition.IsUsable)
             {
                 active.Add(new ActiveEngine(key, definition, client));
             }
@@ -149,5 +147,5 @@ public sealed class AnswerEngineProbe(
     }
 
     private static bool Serves(IAnswerEngineClient client, AnswerEngineKind kind) =>
-        client.Kind == kind || (client is AnthropicEngineClient && kind is AnswerEngineKind.AnthropicMessages or AnswerEngineKind.AnthropicWebSearch);
+        client.Kind == kind;
 }

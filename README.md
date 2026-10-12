@@ -27,7 +27,8 @@ to produce language-specific Markdown remediation plans.
 **Pipeline (one run, every `AuditIntervalHours` or on "Run audit now"):**
 1. `NativeHtmlScraperService` fetches each target (no JS) → headings, schema.org JSON-LD, meta, hreflang, App Store rating/price → weighted, explainable on-page score.
 2. `AnswerEngineProbe` asks each `AutomatedTestPrompt` (per `LanguageCode`) on every configured **AI answer engine**: ChatGPT (OpenAI Responses + web search),
-   Gemini (Grounding with Google Search), Perplexity (Sonar), Claude (web search tool) and the internal model behind the gateway.
+   Gemini (Grounding with Google Search), Perplexity (Sonar) and Claude (web search tool). The internal model behind the
+   LiteLLM gateway is not probed; it only runs `claude.exe` to orchestrate analysis and planning.
    An answer counts as *visible* when it names the brand (culture-aware, Turkish İ/ı safe) **or** cites one of the channel's `OwnedDomains`.
    Engines run in parallel; each engine's prompts run in sequence.
 3. Snapshots land in `data/<run>/`; `LiveSearchAuditLog` stores scores (overall = 0.4 × on-page + 0.6 × answer visibility across all engines)
@@ -88,9 +89,9 @@ fail if either provider's migrations drift from the model or any identifier exce
 
 | Key | Default | Notes |
 |---|---|---|
-| `Aiso:Llm:BaseUrl` | `https://teb.com.tr` | LiteLLM gateway (Anthropic-compatible) |
+| `Aiso:Llm:BaseUrl` | `https://teb.com.tr` | LiteLLM gateway (Anthropic-compatible), used only by `claude.exe` for orchestration |
 | `Aiso:Llm:Model` | `claude-3-5-sonnet-20241022` | Gateway alias; also pinned for every Claude Code model tier |
-| `Aiso:Engines:{key}:ApiKey` | – | Secret per engine (`chatgpt`, `gemini`, `perplexity`, `claude`); an engine without a key is skipped. The `internal` engine reuses `Aiso:Llm` |
+| `Aiso:Engines:{key}:ApiKey` | – | Secret per engine (`chatgpt`, `gemini`, `perplexity`, `claude`); an engine without a key is skipped |
 | `Aiso:Engines:{key}:Model` | see `Aiso.Worker/appsettings.json` | Vendor model ID. **Confirm against each vendor's current model list** |
 | `Aiso:Engines:{key}:BaseUrl` | vendor endpoint | Point at a LiteLLM pass-through route to keep all traffic on the corporate gateway |
 | `Aiso:MaxParallelEngines` | `5` | Engines queried at the same time |

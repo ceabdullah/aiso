@@ -4,7 +4,6 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Aiso.Domain.Entities;
 using Aiso.Infrastructure.Engines;
-using Aiso.Infrastructure.Llm;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -89,17 +88,14 @@ public class AnswerEngineClientTests
     }
 
     [Fact]
-    public void Anthropic_web_search_params_and_internal_gateway_fallback()
+    public void Anthropic_request_enables_web_search()
     {
         var claude = new AnswerEngineDefinition { Kind = AnswerEngineKind.AnthropicWebSearch, ApiKey = "a", Model = "claude-opus-5-5", MaxSearches = 3 };
         var json = JsonSerializer.Serialize(AnthropicEngineClient.BuildParams(claude, "q"));
         Assert.Contains("web_search_20260209", json, StringComparison.Ordinal);
         Assert.Contains("\"max_uses\":3", json, StringComparison.Ordinal);
 
-        var gateway = new LlmGatewayOptions { BaseUrl = "https://gw.corp.local", ApiKey = "gk", Model = "alias" };
-        var internalEngine = AnthropicEngineClient.Resolve(new AnswerEngineDefinition { Kind = AnswerEngineKind.AnthropicMessages }, gateway);
-        Assert.Equal(("https://gw.corp.local", "gk", "alias"), (internalEngine.ResolvedBaseUrl, internalEngine.ApiKey, internalEngine.Model));
-        Assert.DoesNotContain("web_search", JsonSerializer.Serialize(AnthropicEngineClient.BuildParams(internalEngine, "q")), StringComparison.Ordinal);
+        Assert.Equal("https://api.anthropic.com", claude.ResolvedBaseUrl);
     }
 
     [Fact]
@@ -144,7 +140,7 @@ public class AnswerEngineProbeTests
         options.Engines["chatgpt"] = new() { DisplayName = "ChatGPT", Kind = AnswerEngineKind.OpenAiResponses, ApiKey = "o", Model = "gpt" };
         options.Engines["perplexity"] = new() { DisplayName = "Perplexity", Kind = AnswerEngineKind.PerplexitySonar, ApiKey = "p", Model = "sonar" };
         options.Engines["gemini"] = new() { DisplayName = "Gemini", Kind = AnswerEngineKind.GeminiGrounded, ApiKey = "", Model = "g" }; // no key → skipped
-        options.Engines["internal"] = new() { Kind = AnswerEngineKind.AnthropicMessages }; // gateway not configured → skipped
+        options.Engines["claude"] = new() { DisplayName = "Claude", Kind = AnswerEngineKind.AnthropicWebSearch, Enabled = false, ApiKey = "c", Model = "m" }; // disabled → skipped
 
         var http = new StubHttpFactory(req => req.RequestUri!.Host switch
         {
@@ -153,8 +149,8 @@ public class AnswerEngineProbeTests
             _ => throw new InvalidOperationException(req.RequestUri.ToString()),
         });
 
-        var probe = new AnswerEngineProbe(Options.Create(options), Options.Create(new LlmGatewayOptions()),
-            [new OpenAiResponsesClient(http), new PerplexitySonarClient(http), new GeminiGroundedClient(http), new AnthropicEngineClient(Options.Create(new LlmGatewayOptions()))],
+        var probe = new AnswerEngineProbe(Options.Create(options),
+            [new OpenAiResponsesClient(http), new PerplexitySonarClient(http), new GeminiGroundedClient(http), new AnthropicEngineClient()],
             NullLogger<AnswerEngineProbe>.Instance);
 
         Assert.Equal(["chatgpt", "perplexity"], probe.GetActiveEngines().Select(e => e.Key));

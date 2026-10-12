@@ -12,7 +12,7 @@ run folder and one target. Do exactly this:
 1. Read `data/<run>/<target>.scrape.json` — on-page signals. `scrape.signals[]` lists each weighted
    check (`name`, `weight`, `passed`, `detail`); failed, high-weight signals are the top priorities.
 2. Read `data/<run>/<target>.prompts.json` — answers that AI answer engines (ChatGPT, Gemini,
-   Perplexity, Claude, the internal model; `probes[].engine`) gave to customer questions.
+   Perplexity, Claude; `probes[].engine`) gave to customer questions.
    `mentionsBrand=false` and `citesOwnedDomain=false` mean the brand was invisible for that question.
    `citations[]` lists the sources the engine used: competitor or third-party pages cited instead of
    `ownedDomains` show what content the engines trust. Work out what the brand must publish to be the
