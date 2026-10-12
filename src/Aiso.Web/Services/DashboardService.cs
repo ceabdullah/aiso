@@ -281,6 +281,92 @@ public sealed class DashboardService(
         roleMappings.Invalidate();
     }
 
+    // ---- AI engines -------------------------------------------------------------------------
+
+    public async Task<List<EngineEditModel>> GetEnginesAsync(CancellationToken ct = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(ct);
+        var engines = await db.AnswerEngineSettings.AsNoTracking().OrderBy(e => e.DisplayName)
+            .Select(e => new EngineEditModel
+            {
+                Id = e.Id, EngineKey = e.EngineKey, DisplayName = e.DisplayName, Kind = e.Kind, IsEnabled = e.IsEnabled,
+                DefaultModel = e.DefaultModel, ModelOverride = e.ModelOverride, MaxSearchesOverride = e.MaxSearchesOverride,
+                KeyConfigured = e.KeyConfigured, LastSyncedAtUtc = e.LastSyncedAtUtc, UpdatedBy = e.UpdatedBy, UpdatedAtUtc = e.UpdatedAtUtc,
+            })
+            .ToListAsync(ct);
+
+        var since = DateTime.UtcNow.AddDays(-30);
+        var usage = await db.EngineProbeResults.AsNoTracking()
+            .Where(r => r.CreatedAtUtc >= since)
+            .GroupBy(r => r.EngineKey)
+            .Select(g => new
+            {
+                Key = g.Key,
+                Answers = g.Count(),
+                Errors = g.Count(r => r.ErrorMessage != null),
+                AvgLatency = g.Average(r => (double)r.LatencyMs),
+                LastUsed = g.Max(r => r.CreatedAtUtc),
+            })
+            .ToListAsync(ct);
+
+        var activePrompts = await db.AutomatedTestPrompts.CountAsync(p => p.IsActive && p.TargetProfile!.IsActive, ct);
+        var intervalHours = Math.Clamp(await settings.GetIntAsync(SettingKeys.AuditIntervalHours, ct), 1, 24 * 30);
+        var runsPerMonth = (int)Math.Ceiling(30 * 24d / intervalHours);
+
+        foreach (var engine in engines)
+        {
+            var u = usage.FirstOrDefault(x => string.Equals(x.Key, engine.EngineKey, StringComparison.OrdinalIgnoreCase));
+            engine.Answers30d = u?.Answers ?? 0;
+            engine.Errors30d = u?.Errors ?? 0;
+            engine.AvgLatencyMs = (long)Math.Round(u?.AvgLatency ?? 0);
+            engine.LastUsedUtc = u?.LastUsed;
+            engine.EstimatedAnswersPerMonth = engine.IsEnabled && engine.KeyConfigured ? activePrompts * runsPerMonth : 0;
+        }
+
+        return engines;
+    }
+
+    public async Task SaveEnginesAsync(IEnumerable<EngineEditModel> models, string? user, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(models);
+        var list = models.ToList();
+        foreach (var m in list)
+        {
+            if (m.MaxSearchesOverride is < 1 or > 20)
+            {
+                throw new InvalidOperationException($"{m.DisplayName}: searches per answer must be between 1 and 20.");
+            }
+
+            if (m.ModelOverride is { Length: > 256 })
+            {
+                throw new InvalidOperationException($"{m.DisplayName}: model name is too long.");
+            }
+        }
+
+        await using var db = await contextFactory.CreateDbContextAsync(ct);
+        var rows = await db.AnswerEngineSettings.ToDictionaryAsync(e => e.Id, ct);
+        foreach (var m in list)
+        {
+            if (!rows.TryGetValue(m.Id, out var row))
+            {
+                continue;
+            }
+
+            var model = string.IsNullOrWhiteSpace(m.ModelOverride) || m.ModelOverride.Trim() == row.DefaultModel ? null : m.ModelOverride.Trim();
+            if (row.IsEnabled == m.IsEnabled && row.ModelOverride == model && row.MaxSearchesOverride == m.MaxSearchesOverride)
+            {
+                continue;
+            }
+
+            row.IsEnabled = m.IsEnabled;
+            row.ModelOverride = model;
+            row.MaxSearchesOverride = m.MaxSearchesOverride;
+            row.UpdatedBy = user;
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
     // ---- Reports ------------------------------------------------------------------------------
 
     public async Task<IReadOnlyList<ReportListItem>> GetReportsAsync(CancellationToken ct = default)

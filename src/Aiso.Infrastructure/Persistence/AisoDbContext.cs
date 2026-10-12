@@ -19,6 +19,7 @@ public class AisoDbContext(DbContextOptions<AisoDbContext> options) : DbContext(
     public DbSet<GlobalSystemSetting> GlobalSystemSettings => Set<GlobalSystemSetting>();
     public DbSet<SecurityRoleMapping> SecurityRoleMappings => Set<SecurityRoleMapping>();
     public DbSet<EngineProbeResult> EngineProbeResults => Set<EngineProbeResult>();
+    public DbSet<AnswerEngineSetting> AnswerEngineSettings => Set<AnswerEngineSetting>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {

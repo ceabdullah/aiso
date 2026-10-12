@@ -71,7 +71,7 @@ public sealed class PipelineEndToEndTests : IDisposable
         var scraper = new NativeHtmlScraperService(
             new HttpClient(new StubHandler(_ => Html("<html lang='tr'><head><title>TEB Bireysel Bankacılık</title></head><body><h1>TEB</h1></body></html>"))),
             Options.Create(new ScraperOptions()), NullLogger<NativeHtmlScraperService>.Instance);
-        var probe = new AnswerEngineProbe(Options.Create(engines),
+        var probe = new AnswerEngineProbe(Options.Create(engines), new EfEngineSettingsStore(factory, TimeProvider.System),
             [new OpenAiResponsesClient(http), new PerplexitySonarClient(http)], NullLogger<AnswerEngineProbe>.Instance);
         var agent = new StubAgent("""{"summary":"Özet.","items":[{"title":"FAQPage ekleyin","priority":"high","category":"structured-data"}]}""");
         var alerts = new CapturingNotifications();
@@ -103,6 +103,9 @@ public sealed class PipelineEndToEndTests : IDisposable
         Assert.Equal(4, rows.Count);
         Assert.Equal(2, rows.Count(r => r.EngineName == "Perplexity"));
         Assert.Contains(rows, r => r.EngineName == "Perplexity" && r.CitesOwnedDomain && r.CitationsJson!.Contains("teb.com.tr", StringComparison.Ordinal));
+
+        // The run registered both engines for the admin page, with key status.
+        Assert.Equal(["chatgpt", "perplexity"], await db.AnswerEngineSettings.Where(e => e.KeyConfigured).OrderBy(e => e.EngineKey).Select(e => e.EngineKey).ToListAsync(ct));
 
         var plan = await db.AisoRemediationPlans.SingleAsync(ct);
         Assert.Equal(RemediationStatus.Published, plan.Status);

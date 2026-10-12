@@ -103,6 +103,84 @@ namespace Aiso.Migrations.SqlServer.Migrations
                     b.ToTable("AISO_REMEDIATION_PLAN", (string)null);
                 });
 
+            modelBuilder.Entity("Aiso.Domain.Entities.AnswerEngineSetting", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("ID");
+
+                    b.Property<Guid>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("CONCURRENCY_STAMP");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("CREATED_AT_UTC");
+
+                    b.Property<string>("DefaultModel")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)")
+                        .HasColumnName("DEFAULT_MODEL");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("DISPLAY_NAME");
+
+                    b.Property<string>("EngineKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("ENGINE_KEY");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit")
+                        .HasColumnName("IS_ENABLED");
+
+                    b.Property<bool>("KeyConfigured")
+                        .HasColumnType("bit")
+                        .HasColumnName("KEY_CONFIGURED");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("KIND");
+
+                    b.Property<DateTime?>("LastSyncedAtUtc")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("LAST_SYNCED_AT_UTC");
+
+                    b.Property<int?>("MaxSearchesOverride")
+                        .HasColumnType("int")
+                        .HasColumnName("MAX_SEARCHES_OVERRIDE");
+
+                    b.Property<string>("ModelOverride")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)")
+                        .HasColumnName("MODEL_OVERRIDE");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("UPDATED_AT_UTC");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)")
+                        .HasColumnName("UPDATED_BY");
+
+                    b.HasKey("Id")
+                        .HasName("PK_AISO_ANSWER_ENGINE");
+
+                    b.HasIndex("EngineKey")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ANSWER_ENGINE_ENGINE_KEY");
+
+                    b.ToTable("AISO_ANSWER_ENGINE", (string)null);
+                });
+
             modelBuilder.Entity("Aiso.Domain.Entities.AutomatedTestPrompt", b =>
                 {
                     b.Property<Guid>("Id")

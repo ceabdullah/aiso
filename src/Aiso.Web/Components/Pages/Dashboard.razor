@@ -29,6 +29,7 @@
         case "analytics": <AnalyticsTab /> break;
         case "prompts": <PromptsTab /> break;
         case "reports": <ReportsTab /> break;
+        case "engines": <EnginesTab /> break;
         case "security": <SecurityTab /> break;
         case "settings": <SettingsTab /> break;
     }
@@ -47,6 +48,7 @@
         ("analytics", "Advanced Analytics", AisoPolicies.CanView),
         ("prompts", "Test Prompts", AisoPolicies.CanEdit),
         ("reports", "Reports", AisoPolicies.CanView),
+        ("engines", "AI Engines", AisoPolicies.Admin),
         ("security", "Security Mappings", AisoPolicies.Admin),
         ("settings", "System Settings", AisoPolicies.Admin),
     ];

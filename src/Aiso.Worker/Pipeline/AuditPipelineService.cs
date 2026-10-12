@@ -63,14 +63,15 @@ public sealed class AuditPipelineService(
             .OrderBy(t => t.Code)
             .ToListAsync(ct);
 
-        var engines = probe.GetActiveEngines();
+        await probe.SyncSettingsAsync(ct);
+        var engines = await probe.GetActiveEnginesAsync(ct);
         logger.LogInformation("Pipeline run {RunId} started for {Count} target(s), {EngineCount} answer engine(s) [{Engines}] → {Folder}.",
             runId, targets.Count, engines.Count, string.Join(", ", engines.Select(e => e.Definition.DisplayName)), runFolder);
 
         var audits = new List<(TargetProfile Target, LiveSearchAuditLog Log)>();
         foreach (var target in targets)
         {
-            audits.Add((target, await AuditTargetAsync(db, target, runId, runFolder, ct)));
+            audits.Add((target, await AuditTargetAsync(db, target, runId, runFolder, engines, ct)));
         }
 
         await db.SaveChangesAsync(ct);
@@ -109,7 +110,8 @@ public sealed class AuditPipelineService(
         return new PipelineRunSummary(runId, runFolder, audits.Count, plansExported, alertSent);
     }
 
-    private async Task<LiveSearchAuditLog> AuditTargetAsync(AisoDbContext db, TargetProfile target, Guid runId, string runFolder, CancellationToken ct)
+    private async Task<LiveSearchAuditLog> AuditTargetAsync(
+        AisoDbContext db, TargetProfile target, Guid runId, string runFolder, IReadOnlyList<ActiveEngine> engines, CancellationToken ct)
     {
         using var activity = ActivitySource.StartActivity("Audit target");
         activity?.SetTag("aiso.target", target.Code);
@@ -126,10 +128,10 @@ public sealed class AuditPipelineService(
             IReadOnlyList<EngineProbeOutcome> probes = [];
             if (target.TestPrompts.Count > 0)
             {
-                probes = await probe.ProbeAsync(target, target.TestPrompts.ToList(), ct);
+                probes = await probe.ProbeAsync(target, target.TestPrompts.ToList(), engines, ct);
                 if (probes.Count == 0)
                 {
-                    logger.LogWarning("No answer engine is configured; skipping {Count} prompt(s) for {Target}.", target.TestPrompts.Count, target.Code);
+                    logger.LogWarning("No answer engine is switched on with an API key; skipping {Count} prompt(s) for {Target}.", target.TestPrompts.Count, target.Code);
                 }
             }
 

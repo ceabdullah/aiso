@@ -96,3 +96,31 @@ public sealed class RoleMappingEditModel
     public string? Notes { get; set; }
     public bool IsDeleted { get; set; }
 }
+
+/// <summary>Editable row of the AI Engines admin tab, with recent usage.</summary>
+public sealed class EngineEditModel
+{
+    public Guid Id { get; set; }
+    public string EngineKey { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string Kind { get; set; } = string.Empty;
+    public bool IsEnabled { get; set; }
+    public string? DefaultModel { get; set; }
+    public string? ModelOverride { get; set; }
+    public int? MaxSearchesOverride { get; set; }
+    public bool KeyConfigured { get; set; }
+    public DateTime? LastSyncedAtUtc { get; set; }
+    public string? UpdatedBy { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+
+    // Usage over the last 30 days.
+    public int Answers30d { get; set; }
+    public int Errors30d { get; set; }
+    public long AvgLatencyMs { get; set; }
+    public DateTime? LastUsedUtc { get; set; }
+
+    /// <summary>Answers this engine would give per month with the current prompts and audit interval.</summary>
+    public int EstimatedAnswersPerMonth { get; set; }
+
+    public bool SupportsSearchLimit => Kind == "AnthropicWebSearch";
+}

@@ -149,16 +149,17 @@ public class AnswerEngineProbeTests
             _ => throw new InvalidOperationException(req.RequestUri.ToString()),
         });
 
-        var probe = new AnswerEngineProbe(Options.Create(options),
+        var probe = new AnswerEngineProbe(Options.Create(options), ConfigurationOnlyEngineSettingsStore.Instance,
             [new OpenAiResponsesClient(http), new PerplexitySonarClient(http), new GeminiGroundedClient(http), new AnthropicEngineClient()],
             NullLogger<AnswerEngineProbe>.Instance);
 
-        Assert.Equal(["chatgpt", "perplexity"], probe.GetActiveEngines().Select(e => e.Key));
+        var engines = await probe.GetActiveEnginesAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(["chatgpt", "perplexity"], engines.Select(e => e.Key));
 
         var target = new TargetProfile { Code = "t", DisplayName = "TEB", BaseUrl = "https://www.teb.com.tr", BrandKeywords = "TEB", OwnedDomains = "teb.com.tr" };
         var prompts = new[] { new AutomatedTestPrompt { PromptText = "q1", LanguageCode = "en-US" }, new AutomatedTestPrompt { PromptText = "q2", LanguageCode = "en-US" } };
 
-        var outcomes = await probe.ProbeAsync(target, prompts, TestContext.Current.CancellationToken);
+        var outcomes = await probe.ProbeAsync(target, prompts, engines, TestContext.Current.CancellationToken);
 
         Assert.Equal(4, outcomes.Count);
         var chatgpt = outcomes.Where(o => o.EngineKey == "chatgpt").ToList();

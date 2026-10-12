@@ -1,5 +1,6 @@
 using System.Globalization;
 using Aiso.Domain;
+using Aiso.Infrastructure.Engines;
 using Aiso.Infrastructure.Persistence;
 using Aiso.Infrastructure.Settings;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +14,7 @@ namespace Aiso.Worker.Pipeline;
 /// </summary>
 public sealed class AuditPipelineWorker(
     IServiceScopeFactory scopeFactory,
+    AnswerEngineProbe probe,
     IDbContextFactory<AisoDbContext> contextFactory,
     ISystemSettingsService settings,
     TimeProvider timeProvider,
@@ -22,6 +24,15 @@ public sealed class AuditPipelineWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        try
+        {
+            await probe.SyncSettingsAsync(stoppingToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Could not register answer engines at startup; will retry on the next pipeline run.");
+        }
+
         using var timer = new PeriodicTimer(PollInterval, timeProvider);
         do
         {

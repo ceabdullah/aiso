@@ -50,7 +50,7 @@ to produce language-specific Markdown remediation plans.
 | `Aiso.Worker` | Pipeline scheduler, retention sweeper (also installable as a Windows Service) |
 | `Aiso.Web` | Blazor Server dashboard, Windows auth + UI-managed AD group → role mapping |
 | `Aiso.AppHost` / `Aiso.ServiceDefaults` | Aspire topology, OpenTelemetry, health checks |
-| `tests/Aiso.Tests` | 59 tests incl. schema portability, CLI process piping, each engine's request/response format, end-to-end pipeline on SQLite |
+| `tests/Aiso.Tests` | 62 tests incl. schema portability, CLI process piping, each engine's request/response format, end-to-end pipeline on SQLite |
 
 ## Running
 
@@ -105,6 +105,18 @@ fail if either provider's migrations drift from the model or any identifier exce
 
 Runtime settings (retention, thresholds, recipients, intervals, default theme) live in `AISO_SYSTEM_SETTING`
 and are edited from the dashboard.
+
+### AI Engines tab (administrators)
+
+![AI Engines](docs/screenshots/08-ai-engines.png)
+
+Administrators switch each external engine on or off and override its model (and, for Claude, web searches per
+answer) without a restart; changes apply from the next audit run. The worker registers every configured engine in
+`AISO_ANSWER_ENGINE` when it starts and on each run, reporting whether it has an API key. A worker restart never
+overwrites an administrator's choices. API keys are deliberately **not** stored in the database or entered in the
+UI: they stay in the worker's secret store / environment, and the tab shows *No API key* until one is set.
+The tab also shows each engine's answers, errors and average response time over 30 days, and the estimated paid
+calls per month (active prompts × audit runs per month).
 
 ## Deliberate deviations from the original brief
 

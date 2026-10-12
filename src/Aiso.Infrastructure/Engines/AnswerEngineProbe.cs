@@ -36,45 +36,70 @@ public sealed record EngineProbeOutcome(
 /// </summary>
 public sealed class AnswerEngineProbe(
     IOptions<AnswerEngineOptions> options,
+    IEngineSettingsStore settingsStore,
     IEnumerable<IAnswerEngineClient> clients,
     ILogger<AnswerEngineProbe> logger)
 {
-    public IReadOnlyList<ActiveEngine> GetActiveEngines()
+    /// <summary>Registers the configured engines with the admin store (key status, default model).</summary>
+    public Task SyncSettingsAsync(CancellationToken cancellationToken) =>
+        settingsStore.SyncAsync(options.Value.Engines, cancellationToken);
+
+    /// <summary>
+    /// Engines to ask in this run: configured, switched on by an administrator, and holding an API key and model.
+    /// Admin model and search-limit overrides are applied to a copy; configuration is never mutated.
+    /// </summary>
+    public async Task<IReadOnlyList<ActiveEngine>> GetActiveEnginesAsync(CancellationToken cancellationToken)
     {
+        var overrides = await settingsStore.GetOverridesAsync(cancellationToken);
         var byKind = clients.ToList();
         var active = new List<ActiveEngine>();
-        foreach (var (key, definition) in options.Value.Engines.OrderBy(e => e.Key, StringComparer.Ordinal))
-        {
-            if (string.IsNullOrWhiteSpace(definition.DisplayName))
-            {
-                definition.DisplayName = key;
-            }
 
-            var client = byKind.FirstOrDefault(c => Serves(c, definition.Kind));
+        foreach (var (key, configured) in options.Value.Engines.OrderBy(e => e.Key, StringComparer.Ordinal))
+        {
+            var definition = Apply(key, configured, overrides.GetValueOrDefault(key));
+            var client = byKind.FirstOrDefault(c => c.Kind == definition.Kind);
             if (client is null)
             {
                 logger.LogWarning("No client for engine {Engine} of kind {Kind}.", key, definition.Kind);
+            }
+            else if (!definition.Enabled)
+            {
+                logger.LogInformation("Engine {Engine} is switched off.", key);
             }
             else if (definition.IsUsable)
             {
                 active.Add(new ActiveEngine(key, definition, client));
             }
-            else if (definition.Enabled)
+            else
             {
-                logger.LogInformation("Engine {Engine} is enabled but has no API key or model; skipping.", key);
+                logger.LogInformation("Engine {Engine} is switched on but has no API key or model; skipping.", key);
             }
         }
 
         return active;
     }
 
+    internal static AnswerEngineDefinition Apply(string key, AnswerEngineDefinition configured, EngineOverride? admin) => new()
+    {
+        DisplayName = string.IsNullOrWhiteSpace(configured.DisplayName) ? key : configured.DisplayName,
+        Kind = configured.Kind,
+        Enabled = admin?.IsEnabled ?? configured.Enabled,
+        BaseUrl = configured.BaseUrl,
+        ApiKey = configured.ApiKey,
+        Model = admin?.Model ?? configured.Model,
+        MaxOutputTokens = configured.MaxOutputTokens,
+        MaxSearches = admin?.MaxSearches is > 0 and var n ? n : configured.MaxSearches,
+        TimeoutSeconds = configured.TimeoutSeconds,
+    };
+
     public async Task<IReadOnlyList<EngineProbeOutcome>> ProbeAsync(
-        TargetProfile target, IReadOnlyCollection<AutomatedTestPrompt> prompts, CancellationToken cancellationToken)
+        TargetProfile target, IReadOnlyCollection<AutomatedTestPrompt> prompts, IReadOnlyList<ActiveEngine> engines,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(prompts);
+        ArgumentNullException.ThrowIfNull(engines);
 
-        var engines = GetActiveEngines();
         if (engines.Count == 0 || prompts.Count == 0)
         {
             return [];
@@ -145,7 +170,4 @@ public sealed class AnswerEngineProbe(
             error,
             latencyMs);
     }
-
-    private static bool Serves(IAnswerEngineClient client, AnswerEngineKind kind) =>
-        client.Kind == kind;
 }

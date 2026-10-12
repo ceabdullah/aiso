@@ -1,0 +1,149 @@
+@attribute [Authorize(Policy = AisoPolicies.Admin)]
+@inject DashboardService Dashboard
+
+<div class="toolbar">
+    <span class="muted small">
+        Switch external AI answer engines on or off and choose their models. Changes apply from the next audit run.
+        API keys are not stored here: they are set on the worker host (<span class="mono">Aiso__Engines__&lt;engine&gt;__ApiKey</span>).
+    </span>
+    <span class="spacer"></span>
+    <button class="btn btn-ghost" @onclick="LoadAsync">Refresh</button>
+    <button class="btn btn-primary" disabled="@(_saving || _engines.Count == 0)" @onclick="SaveAsync">Save engines</button>
+</div>
+
+<StatusMessage Message="@_message" IsError="_isError" />
+
+@if (_engines.Count == 0)
+{
+    <div class="panel">
+        <p class="muted">No engines registered yet. The worker lists its configured engines here when it starts.</p>
+    </div>
+}
+else
+{
+    <div class="engine-grid">
+        @foreach (var e in _engines)
+        {
+            <article class="card engine-card @(Active(e) ? null : "inactive")">
+                <header class="card-head">
+                    <div>
+                        <div class="card-title">@e.DisplayName</div>
+                        <div class="muted small">@KindLabel(e.Kind)</div>
+                    </div>
+                    <label class="switch" title="@(e.IsEnabled ? "Switch off" : "Switch on")">
+                        <input type="checkbox" role="switch" @bind="e.IsEnabled" aria-label="@($"{e.DisplayName} enabled")" />
+                        <span class="switch-track" aria-hidden="true"></span>
+                    </label>
+                </header>
+
+                <div>
+                    @if (!e.KeyConfigured)
+                    {
+                        <span class="chip chip-bad" title="@($"Set Aiso__Engines__{e.EngineKey}__ApiKey on the worker host, then restart it")">No API key</span>
+                    }
+                    else if (e.IsEnabled)
+                    {
+                        <span class="chip chip-ok">Active</span>
+                    }
+                    else
+                    {
+                        <span class="chip">Off</span>
+                    }
+                </div>
+
+                <div class="engine-fields">
+                    <label class="field">
+                        <span class="field-label">Model</span>
+                        <input class="input mono" @bind="e.ModelOverride" placeholder="@(e.DefaultModel ?? "model id")" maxlength="256"
+                               aria-label="@($"{e.DisplayName} model")" />
+                        <span class="muted small">Default: <span class="mono">@(e.DefaultModel ?? "—")</span></span>
+                    </label>
+                    @if (e.SupportsSearchLimit)
+                    {
+                        <label class="field">
+                            <span class="field-label">Web searches per answer</span>
+                            <input class="input input-sm" type="number" min="1" max="20" @bind="e.MaxSearchesOverride" placeholder="5"
+                                   aria-label="@($"{e.DisplayName} searches per answer")" />
+                        </label>
+                    }
+                </div>
+
+                <dl class="engine-stats">
+                    <div><dt>Answers (30d)</dt><dd>@e.Answers30d</dd></div>
+                    <div><dt>Errors (30d)</dt><dd class="@(e.Errors30d > 0 ? "warn-text" : null)">@e.Errors30d</dd></div>
+                    <div><dt>Avg. time</dt><dd>@FormatLatency(e)</dd></div>
+                    <div><dt>Est. answers / month</dt><dd>@e.EstimatedAnswersPerMonth</dd></div>
+                </dl>
+
+                <footer class="card-foot muted small">
+                    @(e.LastUsedUtc is null ? "Not used yet" : $"Last used {e.LastUsedUtc:yyyy-MM-dd HH:mm} UTC")
+                    @if (e.UpdatedBy is not null && e.UpdatedBy != "worker")
+                    {
+                        <span>· changed by @e.UpdatedBy</span>
+                    }
+                </footer>
+            </article>
+        }
+    </div>
+    <p class="muted small">
+        Estimated answers per month = active test prompts × audit runs per month (from the audit interval in System Settings).
+        Each answer is one paid API call to that vendor.
+    </p>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<EngineEditModel> _engines = [];
+    private bool _saving;
+    private string? _message;
+    private bool _isError;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _engines = await Dashboard.GetEnginesAsync();
+        _message = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        try
+        {
+            await Dashboard.SaveEnginesAsync(_engines, (await AuthState).User.Identity?.Name);
+            await LoadAsync();
+            var on = _engines.Count(Active);
+            (_message, _isError) = ($"Engines saved. {on} engine(s) will be asked on the next audit run.", false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            (_message, _isError) = (ex.Message, true);
+        }
+        catch (Exception ex)
+        {
+            (_message, _isError) = ($"Save failed: {ex.Message}", true);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private static string FormatLatency(EngineEditModel e) =>
+        e.Answers30d == 0 ? "—"
+        : e.AvgLatencyMs < 1000 ? $"{e.AvgLatencyMs} ms"
+        : (e.AvgLatencyMs / 1000.0).ToString("0.0 's'", CultureInfo.InvariantCulture);
+
+    private static bool Active(EngineEditModel e) => e.IsEnabled && e.KeyConfigured;
+
+    private static string KindLabel(string kind) => kind switch
+    {
+        "OpenAiResponses" => "OpenAI Responses API · web search",
+        "GeminiGrounded" => "Gemini API · Google Search grounding",
+        "PerplexitySonar" => "Perplexity Sonar",
+        "AnthropicWebSearch" => "Claude API · web search",
+        _ => kind,
+    };
+}

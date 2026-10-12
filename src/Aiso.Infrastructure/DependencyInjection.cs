@@ -8,6 +8,7 @@ using Aiso.Infrastructure.Scraping;
 using Aiso.Infrastructure.Settings;
 using Aiso.Infrastructure.Workspace;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
@@ -23,6 +24,7 @@ public static class DependencyInjection
         builder.AddAisoDatabase();
         builder.Services.AddOptions<WorkspaceOptions>().Bind(builder.Configuration.GetSection(WorkspaceOptions.SectionName));
         builder.Services.AddSingleton<ISystemSettingsService, SystemSettingsService>();
+        builder.Services.TryAddSingleton(TimeProvider.System);
         return builder;
     }
 
@@ -69,6 +71,7 @@ public static class DependencyInjection
         builder.Services.AddSingleton<IAnswerEngineClient, OpenAiResponsesClient>();
         builder.Services.AddSingleton<IAnswerEngineClient, GeminiGroundedClient>();
         builder.Services.AddSingleton<IAnswerEngineClient, PerplexitySonarClient>();
+        builder.Services.AddSingleton<IEngineSettingsStore, EfEngineSettingsStore>();
         builder.Services.AddSingleton<AnswerEngineProbe>();
 
         builder.Services.AddSingleton<IClaudeCliOrchestrator, ClaudeCliOrchestrator>();
