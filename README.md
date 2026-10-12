@@ -26,8 +26,12 @@ to produce language-specific Markdown remediation plans.
 
 **Pipeline (one run, every `AuditIntervalHours` or on "Run audit now"):**
 1. `NativeHtmlScraperService` fetches each target (no JS) → headings, schema.org JSON-LD, meta, hreflang, App Store rating/price → weighted, explainable on-page score.
-2. `PromptVisibilityProbe` replays each `AutomatedTestPrompt` (per `LanguageCode`) against the gateway's `/v1/messages` and checks for brand keywords (culture-aware, Turkish İ/ı safe).
-3. Snapshots land in `data/<run>/`; `LiveSearchAuditLog` stores scores (overall = 0.4 × on-page + 0.6 × prompt visibility).
+2. `AnswerEngineProbe` asks each `AutomatedTestPrompt` (per `LanguageCode`) on every configured **AI answer engine**: ChatGPT (OpenAI Responses + web search),
+   Gemini (Grounding with Google Search), Perplexity (Sonar), Claude (web search tool) and the internal model behind the gateway.
+   An answer counts as *visible* when it names the brand (culture-aware, Turkish İ/ı safe) **or** cites one of the channel's `OwnedDomains`.
+   Engines run in parallel; each engine's prompts run in sequence.
+3. Snapshots land in `data/<run>/`; `LiveSearchAuditLog` stores scores (overall = 0.4 × on-page + 0.6 × answer visibility across all engines)
+   and `AISO_ENGINE_PROBE` stores every engine answer with its cited sources.
 4. `ClaudeCliOrchestrator` runs `claude.exe` in the workspace: *"Analyze the scraped results in data/…"* → JSON contract (see `CLAUDE.md`).
 5. `AisoMarkdownExporter` renders a localized checklist to `reports/` (falls back to free-text parsing if a smaller model ignores the contract).
 6. `AisoNotificationService` emails an HTML table when a score drops below `VisibilityAlertThreshold`.
@@ -45,7 +49,7 @@ to produce language-specific Markdown remediation plans.
 | `Aiso.Worker` | Pipeline scheduler, retention sweeper (also installable as a Windows Service) |
 | `Aiso.Web` | Blazor Server dashboard, Windows auth + UI-managed AD group → role mapping |
 | `Aiso.AppHost` / `Aiso.ServiceDefaults` | Aspire topology, OpenTelemetry, health checks |
-| `tests/Aiso.Tests` | 46 tests incl. schema portability, CLI process piping, end-to-end pipeline on SQLite |
+| `tests/Aiso.Tests` | 59 tests incl. schema portability, CLI process piping, each engine's request/response format, end-to-end pipeline on SQLite |
 
 ## Running
 
@@ -86,6 +90,10 @@ fail if either provider's migrations drift from the model or any identifier exce
 |---|---|---|
 | `Aiso:Llm:BaseUrl` | `https://teb.com.tr` | LiteLLM gateway (Anthropic-compatible) |
 | `Aiso:Llm:Model` | `claude-3-5-sonnet-20241022` | Gateway alias; also pinned for every Claude Code model tier |
+| `Aiso:Engines:{key}:ApiKey` | – | Secret per engine (`chatgpt`, `gemini`, `perplexity`, `claude`); an engine without a key is skipped. The `internal` engine reuses `Aiso:Llm` |
+| `Aiso:Engines:{key}:Model` | see `Aiso.Worker/appsettings.json` | Vendor model ID. **Confirm against each vendor's current model list** |
+| `Aiso:Engines:{key}:BaseUrl` | vendor endpoint | Point at a LiteLLM pass-through route to keep all traffic on the corporate gateway |
+| `Aiso:MaxParallelEngines` | `5` | Engines queried at the same time |
 | `Aiso:ClaudeCli:ExecutablePath` | `claude.exe` | |
 | `Aiso:ClaudeCli:AllowedTools` | `Read, Glob, Grep` | Least privilege; `Bash`, `WebFetch`, `WebSearch` always denied |
 | `Aiso:ClaudeCli:ExtraCaCertificatePath` | – | Corporate root CA → `NODE_EXTRA_CA_CERTS` |
@@ -107,5 +115,8 @@ and are edited from the dashboard.
   this really is the LiteLLM endpoint — sending `ANTHROPIC_API_KEY` to the public web tier would expose the key.
 - **Mobile target.** `https://apple.com` is not an app listing; the seed uses an `apps.apple.com/tr/app/…` placeholder
   (`id000000000`) to be replaced with the real App Store ID, editable in the database.
-- **What "LLM visibility" measures.** Probes hit the internal model behind the gateway, so prompt visibility reflects
-  that model's knowledge, not public AI search engines. Point the gateway alias at a public-model route if available.
+- **Answer engines.** Each public engine is called through its web-search/grounded mode, because that is what consumers see.
+  Claude is called through the official Anthropic C# SDK; OpenAI, Gemini and Perplexity over plain HTTP. Default model IDs
+  (`gpt-5.5`, `gemini-3.1-pro-preview`, `sonar-pro`, `claude-opus-5-5`) are configuration; vendor line-ups change often.
+  Enter the keys with `dotnet user-secrets --project src/Aiso.AppHost set Parameters:chatgpt-api-key <key>` (likewise `gemini-`, `perplexity-`, `claude-`).
+  API answers approximate, but do not exactly equal, what each consumer app shows a signed-in user.

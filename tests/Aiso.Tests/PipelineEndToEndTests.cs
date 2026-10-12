@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using Aiso.Domain.Entities;
 using Aiso.Domain.Enums;
+using Aiso.Infrastructure.Engines;
 using Aiso.Infrastructure.Llm;
 using Aiso.Infrastructure.Notifications;
 using Aiso.Infrastructure.Persistence;
@@ -41,7 +42,7 @@ public sealed class PipelineEndToEndTests : IDisposable
             var target = new TargetProfile
             {
                 Code = "teb-portal", DisplayName = "TEB Portal", BaseUrl = "https://www.teb.com.tr",
-                BrandKeywords = "TEB,Türk Ekonomi Bankası", PrimaryLanguageCode = "tr-TR",
+                BrandKeywords = "TEB,Türk Ekonomi Bankası", OwnedDomains = "teb.com.tr", PrimaryLanguageCode = "tr-TR",
             };
             target.TestPrompts.Add(new AutomatedTestPrompt { PromptText = "KOBİ kredisi için en iyi banka?", LanguageCode = "tr-TR" });
             target.TestPrompts.Add(new AutomatedTestPrompt { PromptText = "Best SME bank in Turkey?", LanguageCode = "en-US" });
@@ -50,21 +51,35 @@ public sealed class PipelineEndToEndTests : IDisposable
         }
 
         var workspace = Options.Create(new WorkspaceOptions { RootPath = _root });
-        var llm = Options.Create(new LlmGatewayOptions { BaseUrl = "https://gateway.test", ApiKey = "k" });
-        var answers = new Queue<string>(["TEB ve Garanti öne çıkıyor.", "Akbank is popular."]);
+        // Two engines: ChatGPT names the brand in Turkish only; Perplexity never names it but cites teb.com.tr once.
+        var engines = new AnswerEngineOptions();
+        engines.Engines["chatgpt"] = new() { DisplayName = "ChatGPT", Kind = AnswerEngineKind.OpenAiResponses, ApiKey = "o", Model = "gpt" };
+        engines.Engines["perplexity"] = new() { DisplayName = "Perplexity", Kind = AnswerEngineKind.PerplexitySonar, ApiKey = "p", Model = "sonar" };
+        var perplexityCalls = 0;
+        var http = new StubHttpFactory(req =>
+        {
+            var body = System.Text.Json.Nodes.JsonNode.Parse(req.Content!.ReadAsStringAsync().GetAwaiter().GetResult())!.ToJsonString(
+                new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+            return req.RequestUri!.Host == "api.openai.com"
+                ? Json(body.Contains("KOBİ", StringComparison.Ordinal)
+                    ? """{"output":[{"type":"message","content":[{"type":"output_text","text":"TEB ve Garanti öne çıkıyor.","annotations":[]}]}]}"""
+                    : """{"output":[{"type":"message","content":[{"type":"output_text","text":"Akbank is popular.","annotations":[]}]}]}""")
+                : Json(++perplexityCalls == 1
+                    ? """{"choices":[{"message":{"content":"Bir banka."}}],"search_results":[{"title":"x","url":"https://www.teb.com.tr/kobi"}]}"""
+                    : """{"choices":[{"message":{"content":"Another bank."}}],"search_results":[{"title":"y","url":"https://www.akbank.com/"}]}""");
+        });
 
         var scraper = new NativeHtmlScraperService(
             new HttpClient(new StubHandler(_ => Html("<html lang='tr'><head><title>TEB Bireysel Bankacılık</title></head><body><h1>TEB</h1></body></html>"))),
             Options.Create(new ScraperOptions()), NullLogger<NativeHtmlScraperService>.Instance);
-        var probe = new PromptVisibilityProbe(
-            new HttpClient(new StubHandler(_ => Json($$"""{"content":[{"type":"text","text":"{{answers.Dequeue()}}"}]}"""))) { BaseAddress = new Uri("https://gateway.test/") },
-            llm, NullLogger<PromptVisibilityProbe>.Instance);
+        var probe = new AnswerEngineProbe(Options.Create(engines), Options.Create(new LlmGatewayOptions()),
+            [new OpenAiResponsesClient(http), new PerplexitySonarClient(http)], NullLogger<AnswerEngineProbe>.Instance);
         var agent = new StubAgent("""{"summary":"Özet.","items":[{"title":"FAQPage ekleyin","priority":"high","category":"structured-data"}]}""");
         var alerts = new CapturingNotifications();
 
         var pipeline = new AuditPipelineService(factory, scraper, probe, agent,
             new AisoMarkdownExporter(workspace, NullLogger<AisoMarkdownExporter>.Instance), alerts,
-            workspace, llm, Options.Create(new ClaudeCliOptions()), NullLogger<AuditPipelineService>.Instance);
+            workspace, Options.Create(new ClaudeCliOptions()), NullLogger<AuditPipelineService>.Instance);
 
         var summary = await pipeline.RunAsync(ct);
 
@@ -78,17 +93,26 @@ public sealed class PipelineEndToEndTests : IDisposable
         await using var db = await factory.CreateDbContextAsync(ct);
         var log = await db.LiveSearchAuditLogs.SingleAsync(ct);
         Assert.Equal(AuditStatus.Succeeded, log.Status);
-        Assert.Equal(2, log.PromptsEvaluated);
-        Assert.Equal(1, log.PromptsMentioningBrand);
-        Assert.Equal(50m, log.PromptVisibilityScore);
+        Assert.Equal(4, log.PromptsEvaluated);                // 2 prompts × 2 engines
+        Assert.Equal(1, log.PromptsMentioningBrand);          // ChatGPT, Turkish prompt
+        Assert.Equal(1, log.PromptsCitingDomain);             // Perplexity cited teb.com.tr once
+        Assert.Equal(50m, log.PromptVisibilityScore);         // 2 of 4 answers visible
         Assert.Equal(Math.Round(0.4m * log.OnPageScore + 0.6m * 50m, 2), log.OverallScore);
-        Assert.Equal(2, AuditMetricsDocument.TryParse(log.MetricsJson)!.Prompts.Count);
+        Assert.NotEmpty(AuditMetricsDocument.TryParse(log.MetricsJson)!.Signals);
+
+        var rows = await db.EngineProbeResults.ToListAsync(ct);
+        Assert.Equal(4, rows.Count);
+        Assert.Equal(2, rows.Count(r => r.EngineName == "Perplexity"));
+        Assert.Contains(rows, r => r.EngineName == "Perplexity" && r.CitesOwnedDomain && r.CitationsJson!.Contains("teb.com.tr", StringComparison.Ordinal));
 
         var plan = await db.AisoRemediationPlans.SingleAsync(ct);
         Assert.Equal(RemediationStatus.Published, plan.Status);
         Assert.EndsWith("_AISO_remediation_plan.md", plan.ReportFilePath, StringComparison.Ordinal);
         Assert.True(File.Exists(Path.Combine(_root, plan.ReportFilePath!)));
         Assert.Contains("AISO İyileştirme Planı", plan.MarkdownContent, StringComparison.Ordinal);
+        Assert.Contains("## Yapay zekâ motoruna göre görünürlük", plan.MarkdownContent, StringComparison.Ordinal);
+        Assert.Contains("| ChatGPT | 50% | 0% |", plan.MarkdownContent, StringComparison.Ordinal);
+        Assert.Contains("| Perplexity | 50% | 50% |", plan.MarkdownContent, StringComparison.Ordinal);
 
         var row = Assert.Single(alerts.Rows);
         Assert.Equal(log.OverallScore, row.OverallScore);

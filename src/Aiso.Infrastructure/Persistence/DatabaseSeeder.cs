@@ -15,6 +15,7 @@ public sealed class DatabaseSeeder(ILogger<DatabaseSeeder> logger)
 
         await SeedSettingsAsync(context, cancellationToken);
         await SeedTargetsAsync(context, cancellationToken);
+        await BackfillOwnedDomainsAsync(context, cancellationToken);
         await SeedRoleMappingsAsync(context, cancellationToken);
 
         var written = await context.SaveChangesAsync(cancellationToken);
@@ -36,6 +37,28 @@ public sealed class DatabaseSeeder(ILogger<DatabaseSeeder> logger)
         }
     }
 
+    /// <summary>Domains whose citation by an AI engine counts as visibility. Editable in the database.</summary>
+    private static readonly Dictionary<string, string> DefaultOwnedDomains = new(StringComparer.Ordinal)
+    {
+        ["teb-portal"] = "teb.com.tr",
+        ["cepteteb"] = "cepteteb.com.tr",
+        // Replace the App Store path with the real listing; the bank's own sites also count for the app.
+        ["teb-ios"] = "apps.apple.com/tr/app/teb-mobil,teb.com.tr,cepteteb.com.tr",
+    };
+
+    /// <summary>Databases created before answer-engine probing have no owned domains; fill the defaults once.</summary>
+    private static async Task BackfillOwnedDomainsAsync(AisoDbContext context, CancellationToken ct)
+    {
+        var targets = await context.TargetProfiles.Where(t => t.OwnedDomains == null || t.OwnedDomains == string.Empty).ToListAsync(ct);
+        foreach (var target in targets)
+        {
+            if (DefaultOwnedDomains.TryGetValue(target.Code, out var domains))
+            {
+                target.OwnedDomains = domains;
+            }
+        }
+    }
+
     private static async Task SeedTargetsAsync(AisoDbContext context, CancellationToken ct)
     {
         if (await context.TargetProfiles.AnyAsync(ct))
@@ -50,6 +73,7 @@ public sealed class DatabaseSeeder(ILogger<DatabaseSeeder> logger)
             BaseUrl = "https://www.teb.com.tr",
             ChannelKind = TargetChannelKind.CoreWebPortal,
             BrandKeywords = "TEB,Türk Ekonomi Bankası,Turk Ekonomi Bankasi",
+            OwnedDomains = DefaultOwnedDomains["teb-portal"],
             PrimaryLanguageCode = "tr-TR",
         };
         var digital = new TargetProfile
@@ -59,6 +83,7 @@ public sealed class DatabaseSeeder(ILogger<DatabaseSeeder> logger)
             BaseUrl = "https://www.cepteteb.com.tr",
             ChannelKind = TargetChannelKind.DigitalChannel,
             BrandKeywords = "CEPTETEB,Cepteteb,TEB",
+            OwnedDomains = DefaultOwnedDomains["cepteteb"],
             PrimaryLanguageCode = "tr-TR",
         };
         var mobile = new TargetProfile
@@ -69,6 +94,7 @@ public sealed class DatabaseSeeder(ILogger<DatabaseSeeder> logger)
             BaseUrl = "https://apps.apple.com/tr/app/teb-mobil/id000000000",
             ChannelKind = TargetChannelKind.MobileAppStore,
             BrandKeywords = "TEB Mobil,CEPTETEB,TEB",
+            OwnedDomains = DefaultOwnedDomains["teb-ios"],
             PrimaryLanguageCode = "tr-TR",
         };
 

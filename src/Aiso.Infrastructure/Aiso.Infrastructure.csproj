@@ -12,6 +12,7 @@
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
     <PackageReference Include="HtmlAgilityPack" />
+    <PackageReference Include="Anthropic" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Aiso.Domain\Aiso.Domain.csproj" />

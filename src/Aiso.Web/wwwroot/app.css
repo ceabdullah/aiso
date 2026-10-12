@@ -193,3 +193,14 @@ h2 { font-size: 18px; } h3 { font-size: 14px; margin: 0 0 12px; font-weight: 600
 #blazor-error-ui .reload { color: #fff; text-decoration: underline; margin-left: 8px; }
 h1:focus { outline: none; } /* FocusOnNavigate moves focus here for screen readers; no visual ring needed */
 .table td.mono { white-space: nowrap; }
+
+/* Answer-engine visibility */
+.engine-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.engine-chip { display: inline-flex; gap: 6px; align-items: baseline; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; }
+.engine-chip .engine-name { color: var(--muted); }
+.engine-chip .engine-rate { font-weight: 600; font-variant-numeric: tabular-nums; }
+.engine-chip.good .engine-rate { color: var(--good); }
+.engine-chip.warn .engine-rate { color: var(--warn); }
+.engine-chip.bad .engine-rate { color: var(--bad); }
+.engine-matrix td { min-width: 120px; vertical-align: top; }
+.engine-matrix .bar { margin-bottom: 4px; }

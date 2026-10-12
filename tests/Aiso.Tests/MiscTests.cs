@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using Aiso.Domain.Entities;
 using Aiso.Domain.Enums;
-using Aiso.Infrastructure.Llm;
+using Aiso.Infrastructure.Engines;
 using Aiso.Infrastructure.Notifications;
 using Aiso.Web.Security;
 using Aiso.Worker.Pipeline;
@@ -45,7 +45,7 @@ public class PromptProbeTests
     public void MatchKeywords_is_case_and_culture_aware(string answer, string lang, bool expected)
     {
         var keywords = new[] { "TEB", "Türk Ekonomi Bankası", "Turk Ekonomi Bankasi" };
-        Assert.Equal(expected, PromptVisibilityProbe.MatchKeywords(answer, keywords, lang).Count > 0);
+        Assert.Equal(expected, BrandMatcher.MatchKeywords(answer, keywords, lang).Count > 0);
     }
 }
 

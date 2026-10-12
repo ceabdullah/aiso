@@ -14,6 +14,7 @@ internal sealed class TargetProfileConfiguration : IEntityTypeConfiguration<Targ
         builder.Property(t => t.DisplayName).HasMaxLength(ColumnLengths.Name).IsRequired();
         builder.Property(t => t.BaseUrl).HasMaxLength(ColumnLengths.Url).IsRequired();
         builder.Property(t => t.BrandKeywords).HasMaxLength(ColumnLengths.ShortText).IsRequired();
+        builder.Property(t => t.OwnedDomains).HasMaxLength(ColumnLengths.ShortText);
         builder.Property(t => t.PrimaryLanguageCode).HasMaxLength(ColumnLengths.LanguageCode).IsRequired();
 
         builder.HasIndex(t => t.Code).IsUnique();

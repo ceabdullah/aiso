@@ -41,6 +41,14 @@ var migrations = builder.AddProject<Projects.Aiso_MigrationService>("migrations"
     .WithReference(database)
     .WithEnvironment("Aiso__Database__Provider", provider);
 
+// Public AI answer engines (ChatGPT, Gemini, Perplexity, Claude). Each key is optional: set
+// Parameters:<engine>-api-key in user secrets or the environment to switch that engine on.
+string[] publicEngines = ["chatgpt", "gemini", "perplexity", "claude"];
+var engineKeys = publicEngines
+    .Where(engine => !string.IsNullOrWhiteSpace(builder.Configuration[$"Parameters:{engine}-api-key"]))
+    .Select(engine => (Engine: engine, Key: builder.AddParameter($"{engine}-api-key", secret: true)))
+    .ToList();
+
 var worker = builder.AddProject<Projects.Aiso_Worker>("worker")
     .WithReference(database)
     .WaitForCompletion(migrations)
@@ -49,6 +57,11 @@ var worker = builder.AddProject<Projects.Aiso_Worker>("worker")
     .WithEnvironment("Aiso__Llm__BaseUrl", llmBaseUrl)
     .WithEnvironment("Aiso__Llm__Model", llmModel)
     .WithEnvironment("Aiso__Llm__ApiKey", llmApiKey);
+
+foreach (var (engine, key) in engineKeys)
+{
+    worker.WithEnvironment($"Aiso__Engines__{engine}__ApiKey", key);
+}
 
 var web = builder.AddProject<Projects.Aiso_Web>("web")
     .WithReference(database)

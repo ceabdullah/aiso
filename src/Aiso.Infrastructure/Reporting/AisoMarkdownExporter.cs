@@ -195,6 +195,18 @@ public sealed partial class AisoMarkdownExporter(IOptions<WorkspaceOptions> work
             md.AppendLine();
         }
 
+        if (context.EngineScores is { Count: > 0 } engines)
+        {
+            md.Append(inv, $"## {s.Engines}").AppendLine().AppendLine();
+            md.Append(inv, $"| {s.Engine} | {s.Visibility} | {s.Cited} |").AppendLine().AppendLine("|---|---:|---:|");
+            foreach (var e in engines)
+            {
+                md.Append(inv, $"| {Escape(e.Engine)} | {e.VisibilityRate:0.#}% | {e.CitationRate:0.#}% |").AppendLine();
+            }
+
+            md.AppendLine();
+        }
+
         if (!string.IsNullOrWhiteSpace(payload.Summary))
         {
             md.Append(inv, $"## {s.Summary}").AppendLine().AppendLine();

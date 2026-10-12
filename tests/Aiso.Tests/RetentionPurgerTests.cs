@@ -34,6 +34,8 @@ public sealed class RetentionPurgerTests : IDisposable
         var oldLog = new LiveSearchAuditLog { TargetProfile = target, RunId = Guid.NewGuid() };
         var freshLog = new LiveSearchAuditLog { TargetProfile = target, RunId = Guid.NewGuid() };
         var plan = new AisoRemediationPlan { TargetProfile = target, AuditLog = oldLog, Title = "p", LanguageCode = "tr-TR" };
+        oldLog.ProbeResults.Add(new EngineProbeResult { EngineKey = "chatgpt", EngineName = "ChatGPT", LanguageCode = "tr-TR", PromptText = "q" });
+        freshLog.ProbeResults.Add(new EngineProbeResult { EngineKey = "chatgpt", EngineName = "ChatGPT", LanguageCode = "tr-TR", PromptText = "q" });
         db.AddRange(target, oldLog, freshLog, plan);
         await db.SaveChangesAsync(ct);
 
@@ -49,6 +51,7 @@ public sealed class RetentionPurgerTests : IDisposable
         Assert.Equal(1, result.PlansDetached);
         db.ChangeTracker.Clear();
         Assert.Equal([freshLog.Id], await db.LiveSearchAuditLogs.Select(a => a.Id).ToListAsync(ct));
+        Assert.Equal(freshLog.Id, (await db.EngineProbeResults.SingleAsync(ct)).AuditLogId); // cascaded with its audit log
         var survivingPlan = await db.AisoRemediationPlans.SingleAsync(ct);
         Assert.Null(survivingPlan.AuditLogId);
     }

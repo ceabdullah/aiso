@@ -156,6 +156,98 @@ namespace Aiso.Migrations.Oracle.Migrations
                     b.ToTable("AISO_TEST_PROMPT", (string)null);
                 });
 
+            modelBuilder.Entity("Aiso.Domain.Entities.EngineProbeResult", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("RAW(16)")
+                        .HasColumnName("ID");
+
+                    b.Property<string>("AnswerExcerpt")
+                        .HasMaxLength(2000)
+                        .HasColumnType("NVARCHAR2(2000)")
+                        .HasColumnName("ANSWER_EXCERPT");
+
+                    b.Property<Guid>("AuditLogId")
+                        .HasColumnType("RAW(16)")
+                        .HasColumnName("AUDIT_LOG_ID");
+
+                    b.Property<string>("CitationsJson")
+                        .HasColumnType("NCLOB")
+                        .HasColumnName("CITATIONS_JSON")
+                        .HasAnnotation("Aiso:LargeText", true);
+
+                    b.Property<bool>("CitesOwnedDomain")
+                        .HasColumnType("NUMBER(1)")
+                        .HasColumnName("CITES_OWNED_DOMAIN");
+
+                    b.Property<Guid>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("RAW(16)")
+                        .HasColumnName("CONCURRENCY_STAMP");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TIMESTAMP(7)")
+                        .HasColumnName("CREATED_AT_UTC");
+
+                    b.Property<string>("EngineKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("NVARCHAR2(64)")
+                        .HasColumnName("ENGINE_KEY");
+
+                    b.Property<string>("EngineName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("NVARCHAR2(64)")
+                        .HasColumnName("ENGINE_NAME");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("NVARCHAR2(2000)")
+                        .HasColumnName("ERROR_MESSAGE");
+
+                    b.Property<string>("LanguageCode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("NVARCHAR2(16)")
+                        .HasColumnName("LANGUAGE_CODE");
+
+                    b.Property<long>("LatencyMs")
+                        .HasColumnType("NUMBER(19)")
+                        .HasColumnName("LATENCY_MS");
+
+                    b.Property<string>("MatchedKeywords")
+                        .HasMaxLength(512)
+                        .HasColumnType("NVARCHAR2(512)")
+                        .HasColumnName("MATCHED_KEYWORDS");
+
+                    b.Property<bool>("MentionsBrand")
+                        .HasColumnType("NUMBER(1)")
+                        .HasColumnName("MENTIONS_BRAND");
+
+                    b.Property<Guid>("PromptId")
+                        .HasColumnType("RAW(16)")
+                        .HasColumnName("PROMPT_ID");
+
+                    b.Property<string>("PromptText")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("NVARCHAR2(2000)")
+                        .HasColumnName("PROMPT_TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TIMESTAMP(7)")
+                        .HasColumnName("UPDATED_AT_UTC");
+
+                    b.HasKey("Id")
+                        .HasName("PK_AISO_ENGINE_PROBE");
+
+                    b.HasIndex("AuditLogId", "EngineKey")
+                        .HasDatabaseName("IX_ENGINE_PROBE_AUDIT_L_C686ED");
+
+                    b.ToTable("AISO_ENGINE_PROBE", (string)null);
+                });
+
             modelBuilder.Entity("Aiso.Domain.Entities.GlobalSystemSetting", b =>
                 {
                     b.Property<Guid>("Id")
@@ -254,6 +346,10 @@ namespace Aiso.Migrations.Oracle.Migrations
                         .HasPrecision(5, 2)
                         .HasColumnType("DECIMAL(5,2)")
                         .HasColumnName("PROMPT_VISIBILITY_SCORE");
+
+                    b.Property<int>("PromptsCitingDomain")
+                        .HasColumnType("NUMBER(10)")
+                        .HasColumnName("PROMPTS_CITING_DOMAIN");
 
                     b.Property<int>("PromptsEvaluated")
                         .HasColumnType("NUMBER(10)")
@@ -400,6 +496,11 @@ namespace Aiso.Migrations.Oracle.Migrations
                         .HasColumnType("NUMBER(1)")
                         .HasColumnName("IS_ACTIVE");
 
+                    b.Property<string>("OwnedDomains")
+                        .HasMaxLength(512)
+                        .HasColumnType("NVARCHAR2(512)")
+                        .HasColumnName("OWNED_DOMAINS");
+
                     b.Property<string>("PrimaryLanguageCode")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -451,6 +552,18 @@ namespace Aiso.Migrations.Oracle.Migrations
                     b.Navigation("TargetProfile");
                 });
 
+            modelBuilder.Entity("Aiso.Domain.Entities.EngineProbeResult", b =>
+                {
+                    b.HasOne("Aiso.Domain.Entities.LiveSearchAuditLog", "AuditLog")
+                        .WithMany("ProbeResults")
+                        .HasForeignKey("AuditLogId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_ENGINE_PROBE_AUDIT_LOG");
+
+                    b.Navigation("AuditLog");
+                });
+
             modelBuilder.Entity("Aiso.Domain.Entities.LiveSearchAuditLog", b =>
                 {
                     b.HasOne("Aiso.Domain.Entities.TargetProfile", "TargetProfile")
@@ -461,6 +574,11 @@ namespace Aiso.Migrations.Oracle.Migrations
                         .HasConstraintName("FK_AUDIT_LOG_TARGET_PROFILE");
 
                     b.Navigation("TargetProfile");
+                });
+
+            modelBuilder.Entity("Aiso.Domain.Entities.LiveSearchAuditLog", b =>
+                {
+                    b.Navigation("ProbeResults");
                 });
 
             modelBuilder.Entity("Aiso.Domain.Entities.TargetProfile", b =>

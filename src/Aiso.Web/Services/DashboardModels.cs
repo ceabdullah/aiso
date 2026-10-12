@@ -15,7 +15,25 @@ public sealed record TargetSummary(
     decimal? PreviousOverallScore,
     AuditStatus? LastStatus,
     DateTime? LastAuditUtc,
-    int ActivePrompts);
+    int ActivePrompts,
+    IReadOnlyList<EngineRate> Engines);
+
+/// <summary>Share of one engine's answers (latest run) in which the brand was visible.</summary>
+public sealed record EngineRate(string Engine, int Evaluated, int Visible, int Cited)
+{
+    public decimal Rate => Evaluated == 0 ? 0 : Math.Round(100m * Visible / Evaluated, 1);
+    public decimal CitedRate => Evaluated == 0 ? 0 : Math.Round(100m * Cited / Evaluated, 1);
+}
+
+/// <summary>One engine × target cell of the analytics matrix.</summary>
+public sealed record EngineVisibility(string Target, string Engine, int Evaluated, int Mentioned, int Cited, int Visible)
+{
+    public decimal Rate => Evaluated == 0 ? 0 : Math.Round(100m * Visible / Evaluated, 1);
+    public decimal CitedRate => Evaluated == 0 ? 0 : Math.Round(100m * Cited / Evaluated, 1);
+}
+
+/// <summary>A web domain the engines cited for the test prompts.</summary>
+public sealed record CitedDomain(string Domain, int Citations, IReadOnlyList<string> Engines, bool IsOwned);
 
 public sealed record DashboardSummary(
     IReadOnlyList<TargetSummary> Targets,
@@ -42,7 +60,9 @@ public sealed record AnalyticsData(
     IReadOnlyList<TargetTrend> Trends,
     SignalMatrix Signals,
     IReadOnlyList<LanguageVisibility> Languages,
-    IReadOnlyList<AuditRow> RecentAudits);
+    IReadOnlyList<AuditRow> RecentAudits,
+    IReadOnlyList<EngineVisibility> Engines,
+    IReadOnlyList<CitedDomain> TopDomains);
 
 public sealed record ReportListItem(
     Guid Id,

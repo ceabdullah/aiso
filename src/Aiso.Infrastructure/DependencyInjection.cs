@@ -1,3 +1,4 @@
+using Aiso.Infrastructure.Engines;
 using Aiso.Infrastructure.Llm;
 using Aiso.Infrastructure.Notifications;
 using Aiso.Infrastructure.Persistence;
@@ -54,24 +55,21 @@ public static class DependencyInjection
                 o.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(60);
             });
 
-        builder.Services.AddHttpClient<PromptVisibilityProbe>(PromptVisibilityProbe.HttpClientName, (sp, http) =>
-            {
-                var llm = sp.GetRequiredService<IOptions<LlmGatewayOptions>>().Value;
-                if (!string.IsNullOrWhiteSpace(llm.BaseUrl))
-                {
-                    http.BaseAddress = new Uri(llm.BaseUrl.TrimEnd('/') + "/");
-                }
-
-                http.Timeout = Timeout.InfiniteTimeSpan;
-                http.DefaultRequestHeaders.Add("x-api-key", llm.ApiKey);
-                http.DefaultRequestHeaders.Add("anthropic-version", llm.AnthropicVersion);
-            })
+        builder.Services.AddOptions<AnswerEngineOptions>().Bind(config.GetSection(AnswerEngineOptions.SectionName));
+        builder.Services.AddHttpClient(JsonEngineClientBase.HttpClientName, http => http.Timeout = Timeout.InfiniteTimeSpan)
             .AddStandardResilienceHandler(o =>
             {
-                o.AttemptTimeout.Timeout = TimeSpan.FromSeconds(120);
-                o.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(300);
-                o.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(240);
+                // Web-grounded answers can take a minute or more; per-engine timeouts are enforced by the clients.
+                o.AttemptTimeout.Timeout = TimeSpan.FromSeconds(240);
+                o.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(600);
+                o.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(480);
+                o.Retry.MaxRetryAttempts = 2;
             });
+        builder.Services.AddSingleton<IAnswerEngineClient, AnthropicEngineClient>();
+        builder.Services.AddSingleton<IAnswerEngineClient, OpenAiResponsesClient>();
+        builder.Services.AddSingleton<IAnswerEngineClient, GeminiGroundedClient>();
+        builder.Services.AddSingleton<IAnswerEngineClient, PerplexitySonarClient>();
+        builder.Services.AddSingleton<AnswerEngineProbe>();
 
         builder.Services.AddSingleton<IClaudeCliOrchestrator, ClaudeCliOrchestrator>();
         builder.Services.AddSingleton<AisoMarkdownExporter>();

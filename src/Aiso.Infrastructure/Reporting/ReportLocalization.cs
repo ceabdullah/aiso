@@ -12,6 +12,10 @@ internal sealed record ReportStrings(
     string Overall,
     string OnPage,
     string PromptVisibility,
+    string Engines,
+    string Engine,
+    string Visibility,
+    string Cited,
     string Summary,
     string Checklist,
     string Priority,
@@ -27,7 +31,8 @@ internal static class ReportLocalization
     {
         ["en"] = new(
             "AISO Remediation Plan", "Target", "Generated", "Language", "Visibility Scores", "Overall AISO score",
-            "On-page structure", "LLM prompt visibility", "Executive Summary", "Action Checklist", "Priority",
+            "On-page structure", "AI answer visibility", "Visibility by AI engine", "Engine",
+            "Brand visible", "Site cited", "Executive Summary", "Action Checklist", "Priority",
             "Category", "Owner", "The agent returned no actionable items.",
             "Generated automatically by the AISO platform. Review before acting; targets were audited as external black boxes.",
             new Dictionary<RemediationPriority, string>
@@ -37,7 +42,8 @@ internal static class ReportLocalization
             }),
         ["tr"] = new(
             "AISO İyileştirme Planı", "Hedef", "Oluşturulma", "Dil", "Görünürlük Skorları", "Genel AISO skoru",
-            "Sayfa içi yapı", "LLM istem görünürlüğü", "Yönetici Özeti", "Aksiyon Kontrol Listesi", "Öncelik",
+            "Sayfa içi yapı", "Yapay zekâ yanıt görünürlüğü", "Yapay zekâ motoruna göre görünürlük", "Motor",
+            "Marka görünür", "Site kaynak gösterildi", "Yönetici Özeti", "Aksiyon Kontrol Listesi", "Öncelik",
             "Kategori", "Sorumlu", "Ajan uygulanabilir bir madde döndürmedi.",
             "AISO platformu tarafından otomatik oluşturulmuştur. Uygulamadan önce gözden geçiriniz; hedefler harici kara kutu olarak denetlenmiştir.",
             new Dictionary<RemediationPriority, string>

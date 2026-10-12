@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text.Json;
+using Aiso.Infrastructure.Engines;
 using Aiso.Domain;
 using Aiso.Domain.Entities;
 using Aiso.Domain.Enums;
@@ -34,12 +36,21 @@ public sealed class DashboardService(
             var lastTwo = await db.LiveSearchAuditLogs.AsNoTracking()
                 .Where(a => a.TargetProfileId == t.Id && a.Status != AuditStatus.Failed)
                 .OrderByDescending(a => a.CreatedAtUtc).Take(2)
-                .Select(a => new { a.OverallScore, a.OnPageScore, a.PromptVisibilityScore, a.Status, a.CreatedAtUtc })
+                .Select(a => new { a.Id, a.OverallScore, a.OnPageScore, a.PromptVisibilityScore, a.Status, a.CreatedAtUtc })
                 .ToListAsync(ct);
             var latest = lastTwo.FirstOrDefault();
+
+            var engineRows = latest is null ? [] : await db.EngineProbeResults.AsNoTracking()
+                .Where(r => r.AuditLogId == latest.Id && r.ErrorMessage == null)
+                .Select(r => new { r.EngineName, r.MentionsBrand, r.CitesOwnedDomain })
+                .ToListAsync(ct);
+            var engines = engineRows.GroupBy(r => r.EngineName)
+                .Select(g => new EngineRate(g.Key, g.Count(), g.Count(r => r.MentionsBrand || r.CitesOwnedDomain), g.Count(r => r.CitesOwnedDomain)))
+                .OrderBy(e => e.Engine, StringComparer.Ordinal)
+                .ToList();
             summaries.Add(new TargetSummary(t.Id, t.Code, t.DisplayName, t.BaseUrl, t.ChannelKind,
                 latest?.OverallScore, latest?.OnPageScore, latest?.PromptVisibilityScore,
-                lastTwo.Count > 1 ? lastTwo[1].OverallScore : null, latest?.Status, latest?.CreatedAtUtc, t.Prompts));
+                lastTwo.Count > 1 ? lastTwo[1].OverallScore : null, latest?.Status, latest?.CreatedAtUtc, t.Prompts, engines));
         }
 
         var since = DateTime.UtcNow.AddDays(-30);
@@ -73,9 +84,11 @@ public sealed class DashboardService(
                 g.Select(l => new TrendPoint(l.CreatedAtUtc, l.OverallScore, l.OnPageScore, l.PromptVisibilityScore)).ToList()))
             .ToList();
 
+        // Latest audit per channel that actually has page signals (a run whose page fetch failed has none).
         var latestDocs = logs.Where(l => l.Status != AuditStatus.Failed)
             .GroupBy(l => l.Target)
-            .Select(g => (Target: g.Key, Doc: AuditMetricsDocument.TryParse(g.Last().MetricsJson)))
+            .Select(g => (Target: g.Key, Doc: g.Select(l => AuditMetricsDocument.TryParse(l.MetricsJson))
+                .LastOrDefault(d => d is { Signals.Count: > 0 })))
             .Where(x => x.Doc is not null)
             .ToList();
 
@@ -83,18 +96,70 @@ public sealed class DashboardService(
         var matrix = new SignalMatrix(signalNames,
             latestDocs.Select(d => (d.Target, (IReadOnlyDictionary<string, ScoreSignal>)d.Doc!.Signals.ToDictionary(s => s.Name))).ToList());
 
-        var languages = logs.Where(l => l.Status != AuditStatus.Failed)
-            .SelectMany(l => (AuditMetricsDocument.TryParse(l.MetricsJson)?.Prompts ?? []).Select(p => (l.Target, p)))
-            .GroupBy(x => (x.Target, x.p.LanguageCode))
-            .Select(g => new LanguageVisibility(g.Key.Target, g.Key.LanguageCode, g.Count(), g.Count(x => x.p.MentionsBrand)))
+        var probes = await db.EngineProbeResults.AsNoTracking()
+            .Where(r => r.AuditLog!.CreatedAtUtc >= since && r.ErrorMessage == null)
+            .Select(r => new
+            {
+                Target = r.AuditLog!.TargetProfile!.DisplayName,
+                r.AuditLog.TargetProfile.OwnedDomains,
+                r.EngineName, r.LanguageCode, r.MentionsBrand, r.CitesOwnedDomain, r.CitationsJson,
+            })
+            .ToListAsync(ct);
+
+        var languages = probes
+            .GroupBy(p => (p.Target, p.LanguageCode))
+            .Select(g => new LanguageVisibility(g.Key.Target, g.Key.LanguageCode, g.Count(), g.Count(p => p.MentionsBrand || p.CitesOwnedDomain)))
             .OrderBy(l => l.Target).ThenBy(l => l.LanguageCode)
+            .ToList();
+
+        var engines = probes
+            .GroupBy(p => (p.Target, p.EngineName))
+            .Select(g => new EngineVisibility(g.Key.Target, g.Key.EngineName, g.Count(),
+                g.Count(p => p.MentionsBrand), g.Count(p => p.CitesOwnedDomain), g.Count(p => p.MentionsBrand || p.CitesOwnedDomain)))
+            .OrderBy(e => e.Target).ThenBy(e => e.Engine)
+            .ToList();
+
+        var domains = new Dictionary<string, (int Count, HashSet<string> Engines, bool Owned)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in probes.Where(p => p.CitationsJson is not null))
+        {
+            var owned = (p.OwnedDomains ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (var citation in ParseCitations(p.CitationsJson))
+            {
+                if (OwnedDomainMatcher.HostOf(citation) is not { } host)
+                {
+                    continue;
+                }
+
+                var isOwned = OwnedDomainMatcher.FindOwned([citation], owned).Count > 0;
+                var entry = domains.TryGetValue(host, out var e) ? e : (Count: 0, Engines: new HashSet<string>(StringComparer.Ordinal), Owned: false);
+                entry.Engines.Add(p.EngineName);
+                domains[host] = (entry.Count + 1, entry.Engines, entry.Owned || isOwned);
+            }
+        }
+
+        var topDomains = domains
+            .OrderByDescending(d => d.Value.Count).ThenBy(d => d.Key, StringComparer.Ordinal)
+            .Take(15)
+            .Select(d => new CitedDomain(d.Key, d.Value.Count, d.Value.Engines.Order(StringComparer.Ordinal).ToList(), d.Value.Owned))
             .ToList();
 
         var recent = logs.AsEnumerable().Reverse().Take(25)
             .Select(l => new AuditRow(l.CreatedAtUtc, l.Target, l.Status, l.OverallScore, l.HttpStatusCode, l.DurationMs, l.ErrorMessage))
             .ToList();
 
-        return new AnalyticsData(trends, matrix, languages, recent);
+        return new AnalyticsData(trends, matrix, languages, recent, engines, topDomains);
+    }
+
+    private static List<EngineCitation> ParseCitations(string? json)
+    {
+        try
+        {
+            return string.IsNullOrWhiteSpace(json) ? [] : JsonSerializer.Deserialize<List<EngineCitation>>(json) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 
     public async Task RequestRunAsync(string? user, CancellationToken ct = default) =>

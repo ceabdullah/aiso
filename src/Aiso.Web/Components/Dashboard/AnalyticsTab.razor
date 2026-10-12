@@ -28,9 +28,79 @@
     }
 </div>
 
+<div class="panel">
+    <h3>Visibility by AI engine <span class="muted small">(brand named or own site cited · own site cited)</span></h3>
+    @if (_data.Engines.Count == 0)
+    {
+        <p class="muted">No answer-engine results in this window. Configure engine API keys for the worker.</p>
+    }
+    else
+    {
+        var engineNames = _data.Engines.Select(e => e.Engine).Distinct().Order(StringComparer.Ordinal).ToList();
+        <div class="table-scroll">
+            <table class="table engine-matrix">
+                <thead>
+                    <tr>
+                        <th>Channel</th>
+                        @foreach (var name in engineNames)
+                        {
+                            <th>@name</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var target in _data.Engines.Select(e => e.Target).Distinct())
+                    {
+                        <tr>
+                            <td>@target</td>
+                            @foreach (var name in engineNames)
+                            {
+                                var cell = _data.Engines.FirstOrDefault(e => e.Target == target && e.Engine == name);
+                                <td>
+                                    @if (cell is null)
+                                    {
+                                        <span class="muted">·</span>
+                                    }
+                                    else
+                                    {
+                                        <Bar Value="cell.Rate" />
+                                        <div class="muted small" title="Answers citing an owned site">cited @cell.CitedRate.ToString("0", CultureInfo.InvariantCulture)% · n=@cell.Evaluated</div>
+                                    }
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<div class="panel">
+    <h3>Sources AI engines cite <span class="muted small">(for your test prompts)</span></h3>
+    <table class="table">
+        <thead><tr><th>Domain</th><th class="num">Citations</th><th>Cited by</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var d in _data.TopDomains)
+            {
+                <tr>
+                    <td class="mono">@d.Domain</td>
+                    <td class="num">@d.Citations</td>
+                    <td class="small">@string.Join(", ", d.Engines)</td>
+                    <td>@if (d.IsOwned) { <span class="chip chip-ok">your site</span> }</td>
+                </tr>
+            }
+            @if (_data.TopDomains.Count == 0)
+            {
+                <tr><td colspan="4" class="muted">No cited sources recorded yet.</td></tr>
+            }
+        </tbody>
+    </table>
+</div>
+
 <div class="grid-2">
     <div class="panel">
-        <h3>LLM visibility by language</h3>
+        <h3>AI answer visibility by language</h3>
         <table class="table">
             <thead><tr><th>Channel</th><th>Lang</th><th class="num">Mentioned</th><th>Rate</th></tr></thead>
             <tbody>
@@ -72,7 +142,7 @@
 </div>
 
 <div class="panel">
-    <h3>On-page signal matrix <span class="muted small">(latest audit per channel)</span></h3>
+    <h3>On-page signal matrix <span class="muted small">(latest audit with page data, per channel)</span></h3>
     <div class="table-scroll">
         <table class="table matrix">
             <thead>

@@ -18,6 +18,7 @@ public class AisoDbContext(DbContextOptions<AisoDbContext> options) : DbContext(
     public DbSet<AisoRemediationPlan> AisoRemediationPlans => Set<AisoRemediationPlan>();
     public DbSet<GlobalSystemSetting> GlobalSystemSettings => Set<GlobalSystemSetting>();
     public DbSet<SecurityRoleMapping> SecurityRoleMappings => Set<SecurityRoleMapping>();
+    public DbSet<EngineProbeResult> EngineProbeResults => Set<EngineProbeResult>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {

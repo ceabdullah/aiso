@@ -4,7 +4,7 @@ using System.Globalization;
 using System.Text.Json;
 using Aiso.Domain.Entities;
 using Aiso.Domain.Enums;
-using Aiso.Infrastructure.Llm;
+using Aiso.Infrastructure.Engines;
 using Aiso.Infrastructure.Notifications;
 using Aiso.Infrastructure.Persistence;
 using Aiso.Infrastructure.Reporting;
@@ -26,12 +26,11 @@ public sealed record PipelineRunSummary(Guid RunId, string RunFolder, int Target
 public sealed class AuditPipelineService(
     IDbContextFactory<AisoDbContext> contextFactory,
     NativeHtmlScraperService scraper,
-    PromptVisibilityProbe probe,
+    AnswerEngineProbe probe,
     IClaudeCliOrchestrator claude,
     AisoMarkdownExporter exporter,
     IAisoNotificationService notifications,
     IOptions<WorkspaceOptions> workspace,
-    IOptions<LlmGatewayOptions> llmOptions,
     IOptions<ClaudeCliOptions> cliOptions,
     ILogger<AuditPipelineService> logger)
 {
@@ -64,7 +63,9 @@ public sealed class AuditPipelineService(
             .OrderBy(t => t.Code)
             .ToListAsync(ct);
 
-        logger.LogInformation("Pipeline run {RunId} started for {Count} target(s) → {Folder}.", runId, targets.Count, runFolder);
+        var engines = probe.GetActiveEngines();
+        logger.LogInformation("Pipeline run {RunId} started for {Count} target(s), {EngineCount} answer engine(s) [{Engines}] → {Folder}.",
+            runId, targets.Count, engines.Count, string.Join(", ", engines.Select(e => e.Definition.DisplayName)), runFolder);
 
         var audits = new List<(TargetProfile Target, LiveSearchAuditLog Log)>();
         foreach (var target in targets)
@@ -122,34 +123,59 @@ public sealed class AuditPipelineService(
             var scrapePath = Path.Combine(runFolder, $"{target.Code}.scrape.json");
             await WriteJsonAsync(scrapePath, new { target = Describe(target), scrape }, ct);
 
-            IReadOnlyList<PromptProbeResult> probes = [];
-            if (llmOptions.Value.IsConfigured && target.TestPrompts.Count > 0)
+            IReadOnlyList<EngineProbeOutcome> probes = [];
+            if (target.TestPrompts.Count > 0)
             {
-                probes = await probe.ProbeAsync(target, target.TestPrompts, ct);
-            }
-            else if (target.TestPrompts.Count > 0)
-            {
-                logger.LogWarning("LLM gateway not configured; skipping {Count} prompt probe(s) for {Target}.", target.TestPrompts.Count, target.Code);
+                probes = await probe.ProbeAsync(target, target.TestPrompts.ToList(), ct);
+                if (probes.Count == 0)
+                {
+                    logger.LogWarning("No answer engine is configured; skipping {Count} prompt(s) for {Target}.", target.TestPrompts.Count, target.Code);
+                }
             }
 
-            await WriteJsonAsync(Path.Combine(runFolder, $"{target.Code}.prompts.json"), new { target = Describe(target), probes }, ct);
+            await WriteJsonAsync(Path.Combine(runFolder, $"{target.Code}.prompts.json"), new
+            {
+                target = Describe(target),
+                ownedDomains = target.GetOwnedDomains(),
+                probes = probes.Select(p => new
+                {
+                    engine = p.EngineName, p.LanguageCode, prompt = p.PromptText, answer = p.Answer,
+                    p.MentionsBrand, p.CitesOwnedDomain, p.MatchedKeywords, citations = p.Citations, p.Error,
+                }),
+            }, ct);
 
-            var evaluated = probes.Where(p => p.Error is null).ToList();
+            foreach (var p in probes)
+            {
+                log.ProbeResults.Add(new EngineProbeResult
+                {
+                    PromptId = p.PromptId,
+                    EngineKey = p.EngineKey,
+                    EngineName = p.EngineName,
+                    LanguageCode = p.LanguageCode,
+                    PromptText = p.PromptText,
+                    MentionsBrand = p.MentionsBrand,
+                    CitesOwnedDomain = p.CitesOwnedDomain,
+                    MatchedKeywords = p.MatchedKeywords.Count == 0 ? null : string.Join(", ", p.MatchedKeywords),
+                    CitationsJson = p.Citations.Count == 0 ? null : JsonSerializer.Serialize(p.Citations),
+                    AnswerExcerpt = Truncate(p.Answer),
+                    ErrorMessage = Truncate(p.Error),
+                    LatencyMs = p.LatencyMs,
+                });
+            }
+
+            var evaluated = probes.Where(p => p.Succeeded).ToList();
             log.HttpStatusCode = scrape.HttpStatusCode;
             log.OnPageScore = scrape.OnPageScore;
             log.PromptsEvaluated = evaluated.Count;
             log.PromptsMentioningBrand = evaluated.Count(p => p.MentionsBrand);
-            log.PromptVisibilityScore = evaluated.Count == 0 ? 0 : Math.Round(100m * log.PromptsMentioningBrand / evaluated.Count, 2);
+            log.PromptsCitingDomain = evaluated.Count(p => p.CitesOwnedDomain);
+            log.PromptVisibilityScore = evaluated.Count == 0 ? 0 : Math.Round(100m * evaluated.Count(p => p.IsVisible) / evaluated.Count, 2);
             log.OverallScore = evaluated.Count == 0
                 ? log.OnPageScore
                 : Math.Round(OnPageWeight * log.OnPageScore + PromptWeight * log.PromptVisibilityScore, 2);
             log.SnapshotPath = workspace.Value.ToRelative(scrapePath);
-            log.MetricsJson = JsonSerializer.Serialize(new AuditMetricsDocument(
-                scrape.Metrics,
-                scrape.Signals,
-                evaluated.Select(p => new PromptOutcome(p.PromptId, p.LanguageCode, p.MentionsBrand, p.MatchedKeywords)).ToList()),
-                SnapshotJson);
-            log.ErrorMessage = Truncate(scrape.Error ?? (probes.Count > evaluated.Count ? $"{probes.Count - evaluated.Count} prompt probe(s) failed." : null));
+            log.MetricsJson = JsonSerializer.Serialize(new AuditMetricsDocument(scrape.Metrics, scrape.Signals), SnapshotJson);
+            log.ErrorMessage = Truncate(scrape.Error ?? (probes.Count > evaluated.Count ? $"{probes.Count - evaluated.Count} engine answer(s) failed." : null));
             log.Status = !scrape.Success && evaluated.Count == 0 ? AuditStatus.Failed
                 : !scrape.Success || probes.Count > evaluated.Count ? AuditStatus.PartiallySucceeded
                 : AuditStatus.Succeeded;
@@ -198,9 +224,17 @@ public sealed class AuditPipelineService(
                 return plan;
             }
 
+            var engineScores = log.ProbeResults.Where(r => r.ErrorMessage is null)
+                .GroupBy(r => r.EngineName)
+                .Select(g => new EngineScore(g.Key,
+                    Math.Round(100m * g.Count(r => r.IsVisible) / g.Count(), 1),
+                    Math.Round(100m * g.Count(r => r.CitesOwnedDomain) / g.Count(), 1)))
+                .OrderBy(e => e.Engine, StringComparer.Ordinal)
+                .ToList();
+
             var report = await exporter.ExportAsync(new ReportContext(
                 target.Code, target.DisplayName, target.BaseUrl, language,
-                log.OverallScore, log.OnPageScore, log.PromptVisibilityScore, DateTime.UtcNow, result.SessionId),
+                log.OverallScore, log.OnPageScore, log.PromptVisibilityScore, DateTime.UtcNow, result.SessionId, engineScores),
                 result.ResultText, ct);
 
             plan.MarkdownContent = report.Markdown;

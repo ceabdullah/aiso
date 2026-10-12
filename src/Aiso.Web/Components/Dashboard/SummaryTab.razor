@@ -57,8 +57,20 @@
             </div>
             <dl class="metrics">
                 <dt>On-page structure</dt><dd><Bar Value="t.OnPageScore" /></dd>
-                <dt>LLM prompt visibility</dt><dd><Bar Value="t.PromptVisibilityScore" /></dd>
+                <dt>AI answer visibility</dt><dd><Bar Value="t.PromptVisibilityScore" /></dd>
             </dl>
+            @if (t.Engines.Count > 0)
+            {
+                <div class="engine-chips" aria-label="Visibility by AI engine, latest run">
+                    @foreach (var e in t.Engines)
+                    {
+                        <span class="engine-chip @EngineCss(e.Rate)" title="@($"{e.Visible} of {e.Evaluated} answers show the brand; {e.Cited} cite an owned site")">
+                            <span class="engine-name">@e.Engine</span>
+                            <span class="engine-rate">@e.Rate.ToString("0", CultureInfo.InvariantCulture)%</span>
+                        </span>
+                    }
+                </div>
+            }
             <footer class="card-foot muted small">
                 @t.ActivePrompts active prompt(s) ·
                 @(t.LastAuditUtc is null ? "not audited yet" : $"audited {t.LastAuditUtc:yyyy-MM-dd HH:mm} UTC")
@@ -105,6 +117,8 @@
             _busy = false;
         }
     }
+
+    private string EngineCss(decimal rate) => rate < _summary!.AlertThreshold / 2m ? "bad" : rate < _summary.AlertThreshold ? "warn" : "good";
 
     private static string ChannelLabel(TargetChannelKind kind) => kind switch
     {

@@ -36,6 +36,10 @@ public sealed record ReportContext(
     decimal? OnPageScore,
     decimal? PromptVisibilityScore,
     DateTime GeneratedAtUtc,
-    string? AgentSessionId);
+    string? AgentSessionId,
+    IReadOnlyList<EngineScore>? EngineScores = null);
+
+/// <summary>Per-engine visibility for one target: share of answers naming the brand or citing it, and citing it.</summary>
+public sealed record EngineScore(string Engine, decimal VisibilityRate, decimal CitationRate);
 
 public sealed record ExportedReport(string AbsolutePath, string RelativePath, string Markdown, int ItemCount, string? Summary);
