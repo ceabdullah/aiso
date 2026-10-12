@@ -1,0 +1,14 @@
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.idea/
+TestResults/
+*.tmp
+# Runtime workspace output (created by the worker on-prem)
+/data/
+/reports/
+# Local secrets
+appsettings.*.local.json
+*.pfx
