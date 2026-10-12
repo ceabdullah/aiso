@@ -4,7 +4,8 @@ namespace Aiso.Domain.Entities;
 /// Admin-controlled state of one external AI answer engine (ChatGPT, Gemini, …).
 /// The worker registers a row for every engine in its configuration and reports whether an API key is set;
 /// administrators switch engines on or off and override the model from the dashboard.
-/// API keys are never stored here: they stay in the worker's secret store / environment.
+/// An API key entered in the dashboard is stored only as Data Protection ciphertext; a key set in the worker's
+/// environment takes precedence over it.
 /// </summary>
 public class AnswerEngineSetting : EntityBase
 {
@@ -28,7 +29,17 @@ public class AnswerEngineSetting : EntityBase
     /// <summary>Admin override of web searches per answer (engines that support a limit); null uses configuration.</summary>
     public int? MaxSearchesOverride { get; set; }
 
-    /// <summary>Reported by the worker: an API key is present in its configuration.</summary>
+    /// <summary>API key entered in the dashboard, encrypted with ASP.NET Core Data Protection. Never plaintext.</summary>
+    public string? ApiKeyCiphertext { get; set; }
+
+    /// <summary>Last four characters of the dashboard key, to recognise it without revealing it.</summary>
+    public string? ApiKeyHint { get; set; }
+
+    public DateTime? ApiKeyUpdatedAtUtc { get; set; }
+
+    public string? ApiKeyUpdatedBy { get; set; }
+
+    /// <summary>Reported by the worker: an API key is present in its own configuration (environment / secret store).</summary>
     public bool KeyConfigured { get; set; }
 
     /// <summary>When the worker last registered this engine.</summary>

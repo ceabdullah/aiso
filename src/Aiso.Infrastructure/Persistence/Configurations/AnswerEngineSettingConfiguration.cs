@@ -16,6 +16,9 @@ internal sealed class AnswerEngineSettingConfiguration : IEntityTypeConfiguratio
         builder.Property(e => e.DefaultModel).HasMaxLength(ColumnLengths.Name);
         builder.Property(e => e.ModelOverride).HasMaxLength(ColumnLengths.Name);
         builder.Property(e => e.UpdatedBy).HasMaxLength(ColumnLengths.Name);
+        builder.Property(e => e.ApiKeyCiphertext).HasMaxLength(ColumnLengths.MediumText);
+        builder.Property(e => e.ApiKeyHint).HasMaxLength(ColumnLengths.LanguageCode);
+        builder.Property(e => e.ApiKeyUpdatedBy).HasMaxLength(ColumnLengths.Name);
 
         builder.HasIndex(e => e.EngineKey).IsUnique();
     }

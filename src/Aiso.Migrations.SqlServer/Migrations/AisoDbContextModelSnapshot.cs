@@ -109,6 +109,25 @@ namespace Aiso.Migrations.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("ID");
 
+                    b.Property<string>("ApiKeyCiphertext")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("API_KEY_CIPHERTEXT");
+
+                    b.Property<string>("ApiKeyHint")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasColumnName("API_KEY_HINT");
+
+                    b.Property<DateTime?>("ApiKeyUpdatedAtUtc")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("API_KEY_UPDATED_AT_UTC");
+
+                    b.Property<string>("ApiKeyUpdatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)")
+                        .HasColumnName("API_KEY_UPDATED_BY");
+
                     b.Property<Guid>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier")

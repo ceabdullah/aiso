@@ -3,8 +3,8 @@
 
 <div class="toolbar">
     <span class="muted small">
-        Switch external AI answer engines on or off and choose their models. Changes apply from the next audit run.
-        API keys are not stored here: they are set on the worker host (<span class="mono">Aiso__Engines__&lt;engine&gt;__ApiKey</span>).
+        Switch external AI answer engines on or off, choose their models and set their API keys. Changes apply from the next audit run.
+        Keys are encrypted before they are stored and can't be viewed again, only replaced or removed.
     </span>
     <span class="spacer"></span>
     <button class="btn btn-ghost" @onclick="LoadAsync">Refresh</button>
@@ -37,9 +37,9 @@ else
                 </header>
 
                 <div>
-                    @if (!e.KeyConfigured)
+                    @if (!e.KeyConfigured && !e.HasUiKey)
                     {
-                        <span class="chip chip-bad" title="@($"Set Aiso__Engines__{e.EngineKey}__ApiKey on the worker host, then restart it")">No API key</span>
+                        <span class="chip chip-bad">No API key</span>
                     }
                     else if (e.IsEnabled)
                     {
@@ -52,6 +52,42 @@ else
                 </div>
 
                 <div class="engine-fields">
+                    <div class="field">
+                        <span class="field-label">API key</span>
+                        @if (e.KeyConfigured)
+                        {
+                            <span class="key-status small">Set on the worker host. It takes precedence over a key entered here.</span>
+                            @if (e.HasUiKey && !e.RemoveApiKey)
+                            {
+                                <span class="key-status small">The key entered here (<span class="mono">••••@e.ApiKeyHint</span>) is stored but not used.</span>
+                            }
+                        }
+                        else if (e.HasUiKey && !e.RemoveApiKey)
+                        {
+                            <span class="key-status small">
+                                <span class="mono">••••@e.ApiKeyHint</span>
+                                · set by @(e.ApiKeyUpdatedBy ?? "unknown") on @e.ApiKeyUpdatedAtUtc?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) UTC
+                            </span>
+                        }
+                        else if (e.RemoveApiKey)
+                        {
+                            <span class="key-status small warn-text">Key will be removed when you save.</span>
+                        }
+                        <div class="key-row">
+                            <input class="input mono" type="password" autocomplete="new-password" spellcheck="false" maxlength="512"
+                                   @bind="e.NewApiKey" @bind:event="oninput"
+                                   placeholder="@(e.HasUiKey ? "Paste a new key to replace it" : "Paste API key")"
+                                   aria-label="@($"{e.DisplayName} API key")" />
+                            @if (e.HasUiKey && !e.RemoveApiKey)
+                            {
+                                <button type="button" class="btn btn-danger btn-sm" @onclick="() => { e.RemoveApiKey = true; e.NewApiKey = null; }">Remove</button>
+                            }
+                            else if (e.RemoveApiKey)
+                            {
+                                <button type="button" class="btn btn-ghost btn-sm" @onclick="() => e.RemoveApiKey = false">Undo</button>
+                            }
+                        </div>
+                    </div>
                     <label class="field">
                         <span class="field-label">Model</span>
                         <input class="input mono" @bind="e.ModelOverride" placeholder="@(e.DefaultModel ?? "model id")" maxlength="256"
@@ -136,7 +172,7 @@ else
         : e.AvgLatencyMs < 1000 ? $"{e.AvgLatencyMs} ms"
         : (e.AvgLatencyMs / 1000.0).ToString("0.0 's'", CultureInfo.InvariantCulture);
 
-    private static bool Active(EngineEditModel e) => e.IsEnabled && e.KeyConfigured;
+    private static bool Active(EngineEditModel e) => e.IsEnabled && (e.KeyConfigured || e.HasUiKey);
 
     private static string KindLabel(string kind) => kind switch
     {

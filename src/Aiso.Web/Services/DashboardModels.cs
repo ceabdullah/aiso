@@ -108,7 +108,20 @@ public sealed class EngineEditModel
     public string? DefaultModel { get; set; }
     public string? ModelOverride { get; set; }
     public int? MaxSearchesOverride { get; set; }
+    /// <summary>The worker has a key in its own environment; it overrides the dashboard key.</summary>
     public bool KeyConfigured { get; set; }
+
+    // Dashboard key: never the key itself, only its hint and audit fields.
+    public bool HasUiKey { get; set; }
+    public string? ApiKeyHint { get; set; }
+    public DateTime? ApiKeyUpdatedAtUtc { get; set; }
+    public string? ApiKeyUpdatedBy { get; set; }
+
+    /// <summary>Write-only input: a new key to store. Cleared after saving.</summary>
+    public string? NewApiKey { get; set; }
+
+    public bool RemoveApiKey { get; set; }
+
     public DateTime? LastSyncedAtUtc { get; set; }
     public string? UpdatedBy { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
@@ -123,4 +136,6 @@ public sealed class EngineEditModel
     public int EstimatedAnswersPerMonth { get; set; }
 
     public bool SupportsSearchLimit => Kind == "AnthropicWebSearch";
+
+    public bool HasAnyKey => KeyConfigured || (HasUiKey && !RemoveApiKey) || !string.IsNullOrWhiteSpace(NewApiKey);
 }

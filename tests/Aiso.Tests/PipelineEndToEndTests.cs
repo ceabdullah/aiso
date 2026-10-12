@@ -71,7 +71,9 @@ public sealed class PipelineEndToEndTests : IDisposable
         var scraper = new NativeHtmlScraperService(
             new HttpClient(new StubHandler(_ => Html("<html lang='tr'><head><title>TEB Bireysel Bankacılık</title></head><body><h1>TEB</h1></body></html>"))),
             Options.Create(new ScraperOptions()), NullLogger<NativeHtmlScraperService>.Instance);
-        var probe = new AnswerEngineProbe(Options.Create(engines), new EfEngineSettingsStore(factory, TimeProvider.System),
+        var probe = new AnswerEngineProbe(Options.Create(engines), new EfEngineSettingsStore(factory,
+            new Aiso.Infrastructure.Security.EngineApiKeyProtector(new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider()),
+            TimeProvider.System, NullLogger<EfEngineSettingsStore>.Instance),
             [new OpenAiResponsesClient(http), new PerplexitySonarClient(http)], NullLogger<AnswerEngineProbe>.Instance);
         var agent = new StubAgent("""{"summary":"Özet.","items":[{"title":"FAQPage ekleyin","priority":"high","category":"structured-data"}]}""");
         var alerts = new CapturingNotifications();

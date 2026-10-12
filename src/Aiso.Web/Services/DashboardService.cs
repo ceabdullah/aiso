@@ -6,6 +6,7 @@ using Aiso.Domain.Entities;
 using Aiso.Domain.Enums;
 using Aiso.Infrastructure.Persistence;
 using Aiso.Infrastructure.Scraping;
+using Aiso.Infrastructure.Security;
 using Aiso.Infrastructure.Settings;
 using Aiso.Web.Security;
 using Microsoft.EntityFrameworkCore;
@@ -19,7 +20,9 @@ namespace Aiso.Web.Services;
 public sealed class DashboardService(
     IDbContextFactory<AisoDbContext> contextFactory,
     ISystemSettingsService settings,
-    RoleMappingProvider roleMappings)
+    RoleMappingProvider roleMappings,
+    EngineApiKeyProtector keyProtector,
+    ILogger<DashboardService> logger)
 {
     public static readonly string[] SupportedLanguages = ["tr-TR", "en-US", "de-DE", "ar-SA", "ru-RU"];
 
@@ -292,6 +295,8 @@ public sealed class DashboardService(
                 Id = e.Id, EngineKey = e.EngineKey, DisplayName = e.DisplayName, Kind = e.Kind, IsEnabled = e.IsEnabled,
                 DefaultModel = e.DefaultModel, ModelOverride = e.ModelOverride, MaxSearchesOverride = e.MaxSearchesOverride,
                 KeyConfigured = e.KeyConfigured, LastSyncedAtUtc = e.LastSyncedAtUtc, UpdatedBy = e.UpdatedBy, UpdatedAtUtc = e.UpdatedAtUtc,
+                HasUiKey = e.ApiKeyCiphertext != null, ApiKeyHint = e.ApiKeyHint,
+                ApiKeyUpdatedAtUtc = e.ApiKeyUpdatedAtUtc, ApiKeyUpdatedBy = e.ApiKeyUpdatedBy,
             })
             .ToListAsync(ct);
 
@@ -320,7 +325,7 @@ public sealed class DashboardService(
             engine.Errors30d = u?.Errors ?? 0;
             engine.AvgLatencyMs = (long)Math.Round(u?.AvgLatency ?? 0);
             engine.LastUsedUtc = u?.LastUsed;
-            engine.EstimatedAnswersPerMonth = engine.IsEnabled && engine.KeyConfigured ? activePrompts * runsPerMonth : 0;
+            engine.EstimatedAnswersPerMonth = engine.IsEnabled && engine.HasAnyKey ? activePrompts * runsPerMonth : 0;
         }
 
         return engines;
@@ -341,6 +346,11 @@ public sealed class DashboardService(
             {
                 throw new InvalidOperationException($"{m.DisplayName}: model name is too long.");
             }
+
+            if (!string.IsNullOrWhiteSpace(m.NewApiKey) && EngineApiKeyProtector.Validate(m.NewApiKey, out _) is { } error)
+            {
+                throw new InvalidOperationException($"{m.DisplayName}: {error}");
+            }
         }
 
         await using var db = await contextFactory.CreateDbContextAsync(ct);
@@ -350,6 +360,25 @@ public sealed class DashboardService(
             if (!rows.TryGetValue(m.Id, out var row))
             {
                 continue;
+            }
+
+            var now = DateTime.UtcNow;
+            if (!string.IsNullOrWhiteSpace(m.NewApiKey))
+            {
+                EngineApiKeyProtector.Validate(m.NewApiKey, out var apiKey);
+                row.ApiKeyCiphertext = keyProtector.Protect(apiKey);
+                row.ApiKeyHint = EngineApiKeyProtector.Hint(apiKey);
+                row.ApiKeyUpdatedAtUtc = now;
+                row.ApiKeyUpdatedBy = user;
+                logger.LogWarning("API key for engine {Engine} was set by {User}.", row.EngineKey, user); // never the key itself
+            }
+            else if (m.RemoveApiKey && row.ApiKeyCiphertext is not null)
+            {
+                row.ApiKeyCiphertext = null;
+                row.ApiKeyHint = null;
+                row.ApiKeyUpdatedAtUtc = now;
+                row.ApiKeyUpdatedBy = user;
+                logger.LogWarning("API key for engine {Engine} was removed by {User}.", row.EngineKey, user);
             }
 
             var model = string.IsNullOrWhiteSpace(m.ModelOverride) || m.ModelOverride.Trim() == row.DefaultModel ? null : m.ModelOverride.Trim();

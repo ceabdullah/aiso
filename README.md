@@ -50,7 +50,7 @@ to produce language-specific Markdown remediation plans.
 | `Aiso.Worker` | Pipeline scheduler, retention sweeper (also installable as a Windows Service) |
 | `Aiso.Web` | Blazor Server dashboard, Windows auth + UI-managed AD group → role mapping |
 | `Aiso.AppHost` / `Aiso.ServiceDefaults` | Aspire topology, OpenTelemetry, health checks |
-| `tests/Aiso.Tests` | 62 tests incl. schema portability, CLI process piping, each engine's request/response format, end-to-end pipeline on SQLite |
+| `tests/Aiso.Tests` | 68 tests incl. schema portability, CLI process piping, each engine's request/response format, end-to-end pipeline on SQLite |
 
 ## Running
 
@@ -91,10 +91,12 @@ fail if either provider's migrations drift from the model or any identifier exce
 |---|---|---|
 | `Aiso:Llm:BaseUrl` | `https://teb.com.tr` | LiteLLM gateway (Anthropic-compatible), used only by `claude.exe` for orchestration |
 | `Aiso:Llm:Model` | `claude-3-5-sonnet-20241022` | Gateway alias; also pinned for every Claude Code model tier |
-| `Aiso:Engines:{key}:ApiKey` | – | Secret per engine (`chatgpt`, `gemini`, `perplexity`, `claude`); an engine without a key is skipped |
+| `Aiso:Engines:{key}:ApiKey` | – | Optional; keys can instead be entered in the AI Engines tab. A key here wins over the UI key |
 | `Aiso:Engines:{key}:Model` | see `Aiso.Worker/appsettings.json` | Vendor model ID. **Confirm against each vendor's current model list** |
 | `Aiso:Engines:{key}:BaseUrl` | vendor endpoint | Point at a LiteLLM pass-through route to keep all traffic on the corporate gateway |
-| `Aiso:MaxParallelEngines` | `5` | Engines queried at the same time |
+| `Aiso:MaxParallelEngines` | `4` | Engines queried at the same time |
+| `Aiso:SecretProtection:KeyRingPath` | `%ProgramData%\AISO\keys` | Data Protection key ring shared by web and worker |
+| `Aiso:SecretProtection:CertificateThumbprint` | – | Encrypt the key ring with a certificate instead of DPAPI (web and worker on different servers) |
 | `Aiso:ClaudeCli:ExecutablePath` | `claude.exe` | |
 | `Aiso:ClaudeCli:AllowedTools` | `Read, Glob, Grep` | Least privilege; `Bash`, `WebFetch`, `WebSearch` always denied |
 | `Aiso:ClaudeCli:ExtraCaCertificatePath` | – | Corporate root CA → `NODE_EXTRA_CA_CERTS` |
@@ -110,11 +112,23 @@ and are edited from the dashboard.
 
 ![AI Engines](docs/screenshots/08-ai-engines.png)
 
-Administrators switch each external engine on or off and override its model (and, for Claude, web searches per
-answer) without a restart; changes apply from the next audit run. The worker registers every configured engine in
-`AISO_ANSWER_ENGINE` when it starts and on each run, reporting whether it has an API key. A worker restart never
-overwrites an administrator's choices. API keys are deliberately **not** stored in the database or entered in the
-UI: they stay in the worker's secret store / environment, and the tab shows *No API key* until one is set.
+Administrators switch each external engine on or off, set its **API key**, and override its model (and, for Claude,
+web searches per answer) without a restart; changes apply from the next audit run. The worker registers every
+configured engine in `AISO_ANSWER_ENGINE` when it starts and on each run. A worker restart never overwrites an
+administrator's choices.
+
+**API keys entered in the UI**
+- *Write-only.* A key can be pasted, replaced or removed, never viewed again. The card shows the last four characters,
+  who set it and when; every change is also written to the application log (without the key).
+- *Encrypted at rest* with ASP.NET Core Data Protection (purpose `Aiso.AnswerEngine.ApiKey.v1`). The database only
+  ever holds ciphertext, so backups and DBA access do not expose keys.
+- *Shared key ring.* Web (encrypts) and worker (decrypts) use the same key ring folder, `Aiso:SecretProtection:KeyRingPath`
+  (default `%ProgramData%\AISO\keys`). On Windows the key ring itself is encrypted with machine-level DPAPI, so both
+  services must run on the same server; to split them, set `Aiso:SecretProtection:CertificateThumbprint` to a certificate in
+  `LocalMachine\My` that both servers hold. Keep the folder out of database backups and restrict it to the two service accounts.
+  If the key ring is lost, stored keys cannot be decrypted: the engine is skipped, an error is logged, and an admin re-enters the key.
+- *Server keys win.* A key set on the worker host (`Aiso__Engines__<engine>__ApiKey`) takes precedence over the UI key,
+  so a security team can still manage keys centrally.
 The tab also shows each engine's answers, errors and average response time over 30 days, and the estimated paid
 calls per month (active prompts × audit runs per month).
 
@@ -131,5 +145,5 @@ calls per month (active prompts × audit runs per month).
 - **Answer engines.** Each public engine is called through its web-search/grounded mode, because that is what consumers see.
   Claude is called through the official Anthropic C# SDK; OpenAI, Gemini and Perplexity over plain HTTP. Default model IDs
   (`gpt-5.5`, `gemini-3.1-pro-preview`, `sonar-pro`, `claude-opus-5-5`) are configuration; vendor line-ups change often.
-  Enter the keys with `dotnet user-secrets --project src/Aiso.AppHost set Parameters:chatgpt-api-key <key>` (likewise `gemini-`, `perplexity-`, `claude-`).
+  Enter the keys in the **AI Engines** tab, or on the worker host with `dotnet user-secrets --project src/Aiso.AppHost set Parameters:chatgpt-api-key <key>` (likewise `gemini-`, `perplexity-`, `claude-`).
   API answers approximate, but do not exactly equal, what each consumer app shows a signed-in user.

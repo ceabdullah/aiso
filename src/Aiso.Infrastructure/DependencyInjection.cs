@@ -5,6 +5,7 @@ using Aiso.Infrastructure.Persistence;
 using Aiso.Infrastructure.Reporting;
 using Aiso.Infrastructure.Runtime;
 using Aiso.Infrastructure.Scraping;
+using Aiso.Infrastructure.Security;
 using Aiso.Infrastructure.Settings;
 using Aiso.Infrastructure.Workspace;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,6 +26,7 @@ public static class DependencyInjection
         builder.Services.AddOptions<WorkspaceOptions>().Bind(builder.Configuration.GetSection(WorkspaceOptions.SectionName));
         builder.Services.AddSingleton<ISystemSettingsService, SystemSettingsService>();
         builder.Services.TryAddSingleton(TimeProvider.System);
+        builder.AddAisoSecretProtection();
         return builder;
     }
 

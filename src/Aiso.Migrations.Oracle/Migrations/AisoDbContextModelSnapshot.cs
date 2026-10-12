@@ -109,6 +109,25 @@ namespace Aiso.Migrations.Oracle.Migrations
                         .HasColumnType("RAW(16)")
                         .HasColumnName("ID");
 
+                    b.Property<string>("ApiKeyCiphertext")
+                        .HasMaxLength(2000)
+                        .HasColumnType("NVARCHAR2(2000)")
+                        .HasColumnName("API_KEY_CIPHERTEXT");
+
+                    b.Property<string>("ApiKeyHint")
+                        .HasMaxLength(16)
+                        .HasColumnType("NVARCHAR2(16)")
+                        .HasColumnName("API_KEY_HINT");
+
+                    b.Property<DateTime?>("ApiKeyUpdatedAtUtc")
+                        .HasColumnType("TIMESTAMP(7)")
+                        .HasColumnName("API_KEY_UPDATED_AT_UTC");
+
+                    b.Property<string>("ApiKeyUpdatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("NVARCHAR2(256)")
+                        .HasColumnName("API_KEY_UPDATED_BY");
+
                     b.Property<Guid>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("RAW(16)")

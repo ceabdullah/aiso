@@ -85,7 +85,8 @@ public sealed class AnswerEngineProbe(
         Kind = configured.Kind,
         Enabled = admin?.IsEnabled ?? configured.Enabled,
         BaseUrl = configured.BaseUrl,
-        ApiKey = configured.ApiKey,
+        // A key in the worker's environment / secret store wins; otherwise the key entered in the dashboard.
+        ApiKey = !string.IsNullOrWhiteSpace(configured.ApiKey) ? configured.ApiKey : admin?.ApiKey,
         Model = admin?.Model ?? configured.Model,
         MaxOutputTokens = configured.MaxOutputTokens,
         MaxSearches = admin?.MaxSearches is > 0 and var n ? n : configured.MaxSearches,
