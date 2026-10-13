@@ -55,17 +55,30 @@ public sealed class DashboardService(
                 .Select(a => new TrendPoint(a.CreatedAtUtc, a.OverallScore, a.OnPageScore, a.PromptVisibilityScore))
                 .ToListAsync(ct);
 
-            var engineRows = latest is null ? [] : await db.EngineProbeResults.AsNoTracking()
-                .Where(r => r.AuditLogId == latest.Id && r.ErrorMessage == null)
-                .Select(r => new { r.EngineKey, r.EngineName, r.MentionsBrand, r.CitesOwnedDomain })
+            // Each engine's most recent answers for this channel (last 30 days), even if that engine wasn't in the latest
+            // audit: switching an engine off must not hide the results already paid for.
+            var engineRows = await db.EngineProbeResults.AsNoTracking()
+                .Where(r => r.AuditLog!.TargetProfileId == t.Id && r.AuditLog.CreatedAtUtc >= trendSince && r.ErrorMessage == null)
+                .Select(r => new { r.EngineKey, r.EngineName, r.AuditLogId, r.AuditLog!.CreatedAtUtc, r.MentionsBrand, r.CitesOwnedDomain })
                 .ToListAsync(ct);
-            var engines = engineRows.GroupBy(r => (r.EngineKey, r.EngineName))
-                .Select(g => new EngineRate(g.Key.EngineName, g.Count(), g.Count(r => r.MentionsBrand || r.CitesOwnedDomain), g.Count(r => r.CitesOwnedDomain),
-                    simulated.Contains(g.Key.EngineKey)))
+            var engines = engineRows.GroupBy(r => r.EngineKey, StringComparer.OrdinalIgnoreCase)
+                .Select(g =>
+                {
+                    var newest = g.MaxBy(r => r.CreatedAtUtc)!;
+                    var run = g.Where(r => r.AuditLogId == newest.AuditLogId).ToList();
+                    return new EngineRate(newest.EngineName, run.Count, run.Count(r => r.MentionsBrand || r.CitesOwnedDomain), run.Count(r => r.CitesOwnedDomain),
+                        simulated.Contains(g.Key), newest.CreatedAtUtc);
+                })
                 .OrderBy(e => e.Engine, StringComparer.Ordinal)
                 .ToList();
+            // Current view: the latest page check plus each web-searching engine's latest answers (same formula as the
+            // audit), so the card agrees with its rings. Null visibility means "not measured", not 0%.
+            var scored = engines.Where(e => !e.Simulated).ToList();
+            var answers = scored.Sum(e => e.Evaluated);
+            decimal? visibility = answers == 0 ? null : Math.Round(100m * scored.Sum(e => e.Visible) / answers, 2);
+            decimal? overall = latest is null ? null : AisoScore.Overall(latest.OnPageScore, visibility);
             summaries.Add(new TargetSummary(t.Id, t.Code, t.DisplayName, t.BaseUrl, t.ChannelKind,
-                latest?.OverallScore, latest?.OnPageScore, latest?.PromptVisibilityScore,
+                overall, latest?.OnPageScore, visibility,
                 lastTwo.Count > 1 ? lastTwo[1].OverallScore : null, latest?.Status, latest?.CreatedAtUtc, t.Prompts, engines, trend));
         }
 

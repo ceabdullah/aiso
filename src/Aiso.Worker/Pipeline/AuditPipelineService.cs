@@ -41,10 +41,6 @@ public sealed class AuditPipelineService(
     private static readonly Counter<int> AuditsCounter = Meter.CreateCounter<int>("aiso.audits");
     private static readonly Histogram<double> ScoreHistogram = Meter.CreateHistogram<double>("aiso.overall_score");
 
-    /// <summary>Weighting of the overall score. Prompt visibility is the outcome that matters most for GEO.</summary>
-    public const decimal OnPageWeight = 0.4m;
-    public const decimal PromptWeight = 0.6m;
-
     private static readonly JsonSerializerOptions SnapshotJson = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     public async Task<PipelineRunSummary> RunAsync(CancellationToken ct)
@@ -194,9 +190,7 @@ public sealed class AuditPipelineService(
             log.PromptsMentioningBrand = evaluated.Count(p => p.MentionsBrand);
             log.PromptsCitingDomain = evaluated.Count(p => p.CitesOwnedDomain);
             log.PromptVisibilityScore = evaluated.Count == 0 ? 0 : Math.Round(100m * evaluated.Count(p => p.IsVisible) / evaluated.Count, 2);
-            log.OverallScore = evaluated.Count == 0
-                ? log.OnPageScore
-                : Math.Round(OnPageWeight * log.OnPageScore + PromptWeight * log.PromptVisibilityScore, 2);
+            log.OverallScore = AisoScore.Overall(log.OnPageScore, evaluated.Count == 0 ? null : log.PromptVisibilityScore);
             log.SnapshotPath = workspace.Value.ToRelative(scrapePath);
             log.MetricsJson = JsonSerializer.Serialize(new AuditMetricsDocument(scrape.Metrics, scrape.Signals), SnapshotJson);
             log.ErrorMessage = Truncate(scrape.Error ?? (failed > 0 ? $"{failed} engine answer(s) failed." : null));

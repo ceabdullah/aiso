@@ -22,7 +22,7 @@ public sealed record TargetSummary(
     IReadOnlyList<TrendPoint> Trend);
 
 /// <summary>Share of one engine's answers (latest run) in which the brand was visible.</summary>
-public sealed record EngineRate(string Engine, int Evaluated, int Visible, int Cited, bool Simulated = false)
+public sealed record EngineRate(string Engine, int Evaluated, int Visible, int Cited, bool Simulated = false, DateTime? AsOfUtc = null)
 {
     public decimal Rate => Evaluated == 0 ? 0 : Math.Round(100m * Visible / Evaluated, 1);
     public decimal CitedRate => Evaluated == 0 ? 0 : Math.Round(100m * Cited / Evaluated, 1);

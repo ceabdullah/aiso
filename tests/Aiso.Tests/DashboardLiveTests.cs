@@ -108,6 +108,37 @@ public sealed class DashboardLiveTests : IDisposable
         Assert.Equal(0m, Assert.Single(Assert.Single(trend, s => s.EngineKey == "claude").Days).Rate);
     }
 
+    [Fact]
+    public async Task Summary_shows_each_engines_latest_answers_even_from_an_earlier_audit()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using (var db = _factory.CreateDbContext())
+        {
+            var target = new TargetProfile { Code = "teb", DisplayName = "TEB", BaseUrl = "https://www.teb.com.tr", BrandKeywords = "TEB" };
+            var earlier = new LiveSearchAuditLog { TargetProfile = target, RunId = Guid.NewGuid(), Status = AuditStatus.Succeeded };
+            earlier.ProbeResults.Add(Probe("chatgpt", "ChatGPT", "q1", mentions: true, "TEB", null, null));
+            earlier.ProbeResults.Add(Probe("chatgpt", "ChatGPT", "q2", mentions: false, null, null, null));
+            var latest = new LiveSearchAuditLog { TargetProfile = target, RunId = Guid.NewGuid(), Status = AuditStatus.Succeeded };
+            latest.ProbeResults.Add(Probe("nvidia", "NVIDIA (simulated)", "q1", mentions: false, null, null, null));
+            // The worker registers every configured engine with its kind; that is how the dashboard knows NVIDIA is simulated.
+            db.AnswerEngineSettings.Add(new AnswerEngineSetting { EngineKey = "nvidia", DisplayName = "NVIDIA (simulated)", Kind = "OpenAiCompatibleChat" });
+            db.LiveSearchAuditLogs.AddRange(earlier, latest);
+            await db.SaveChangesAsync(ct);
+            earlier.CreatedAtUtc = DateTime.UtcNow.AddHours(-3); // the context stamps inserts with "now"; backdate the earlier audit
+            await db.SaveChangesAsync(ct);
+        }
+
+        var card = Assert.Single((await Dashboard().GetSummaryAsync(ct)).Targets);
+        var engines = card.Engines;
+        Assert.Equal(50m, card.PromptVisibilityScore); // ChatGPT's latest answers, NVIDIA not counted
+        Assert.Equal(30m, card.OverallScore);          // 0.4 × on-page 0 + 0.6 × 50
+
+        var chatgpt = Assert.Single(engines, e => e.Engine == "ChatGPT"); // ChatGPT is off now, but its paid answers still show
+        Assert.Equal(50m, chatgpt.Rate);
+        Assert.True(chatgpt.AsOfUtc < DateTime.UtcNow.AddHours(-2));
+        Assert.Single(engines, e => e.Engine == "NVIDIA (simulated)");
+    }
+
     private async Task SeedAsync(CancellationToken ct)
     {
         await using var db = _factory.CreateDbContext();

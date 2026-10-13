@@ -444,3 +444,4 @@ h1:focus { outline: none; } /* FocusOnNavigate moves focus here for screen reade
 /* Simulated engines (plain chat, no web search): faded ring and italic label; not part of the scores. */
 .engine-ring.simulated .ring-fill { opacity: .6; }
 .engine-ring.simulated .ring-label { font-style: italic; }
+.ring-date { font-size: 10px; color: var(--muted); margin-top: -2px; }
