@@ -1,0 +1,108 @@
+@using Aiso.Infrastructure.Runtime
+@implements IDisposable
+@inject DashboardService Dashboard
+@inject DashboardEvents Events
+
+@* Shows a queued or running audit with live progress, then a short "finished" note. Polls often only while busy. *@
+@if (_state?.Running is { } run)
+{
+    <div class="run-strip running" role="status" aria-live="polite">
+        <span class="run-pulse" aria-hidden="true"></span>
+        <div class="run-text">
+            <strong>Audit running</strong>
+            <span class="muted">· @run.Stage@(run.Target is null ? "" : $": {run.Target}")</span>
+            @if (run.AnswersTotal > 0)
+            {
+                <span class="muted">· @run.AnswersDone of @run.AnswersTotal answers@(run.LastEngine is null ? "" : $" (latest from {run.LastEngine})")</span>
+            }
+            <span class="muted small">· started @Ago(run.StartedAtUtc)</span>
+        </div>
+        <div class="run-bar"><div class="run-bar-fill" style="@BarStyle(run)"></div></div>
+    </div>
+}
+else if (_state?.Queued == true)
+{
+    <div class="run-strip queued" role="status" aria-live="polite">
+        <Icon Name="clock" />
+        <div class="run-text"><strong>Audit queued</strong> <span class="muted">· the worker starts it within a minute</span></div>
+        <div class="run-bar"><div class="run-bar-fill indeterminate"></div></div>
+    </div>
+}
+else if (_finishedAt is { } done && DateTime.UtcNow - done < TimeSpan.FromSeconds(20))
+{
+    <div class="run-strip finished" role="status" aria-live="polite">
+        <Icon Name="check" />
+        <div class="run-text"><strong>Audit finished</strong> <span class="muted">· this tab has been refreshed with the new results</span></div>
+    </div>
+}
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+    private RunState? _state;
+    private DateTime? _finishedAt;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _ = PollAsync();
+    }
+
+    private async Task PollAsync()
+    {
+        try
+        {
+            while (!_cts.IsCancellationRequested)
+            {
+                var busy = _state is { Queued: true } or { Running: not null };
+                await Task.Delay(busy ? TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(10), _cts.Token);
+                await InvokeAsync(async () =>
+                {
+                    var wasRunning = _state?.Running is not null;
+                    await LoadAsync();
+                    if (wasRunning && _state?.Running is null)
+                    {
+                        _finishedAt = DateTime.UtcNow;
+                        await Events.RaiseAuditFinishedAsync();
+                    }
+
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Component disposed.
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _state = await Dashboard.GetRunStateAsync(_cts.Token);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Keep the last known state; the next poll retries.
+        }
+    }
+
+    private static string BarStyle(AuditRunStatus run)
+    {
+        var pct = run.AnswersTotal > 0 ? 100.0 * run.AnswersDone / run.AnswersTotal
+            : run.TargetsTotal > 0 ? 100.0 * run.TargetsDone / run.TargetsTotal : 5;
+        return string.Create(CultureInfo.InvariantCulture, $"width:{Math.Clamp(pct, 3, 100):0.#}%");
+    }
+
+    private static string Ago(DateTime utc)
+    {
+        var s = (int)(DateTime.UtcNow - utc).TotalSeconds;
+        return s < 60 ? $"{s}s ago" : $"{s / 60} min ago";
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

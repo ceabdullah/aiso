@@ -6,6 +6,7 @@ using Aiso.Domain.Entities;
 using Aiso.Domain.Enums;
 using Aiso.Infrastructure.Persistence;
 using Aiso.Infrastructure.Recommendations;
+using Aiso.Infrastructure.Runtime;
 using Aiso.Infrastructure.Scraping;
 using Aiso.Infrastructure.Security;
 using Aiso.Infrastructure.Settings;
@@ -34,6 +35,7 @@ public sealed class DashboardService(
             .Select(t => new { t.Id, t.Code, t.DisplayName, t.BaseUrl, t.ChannelKind, Prompts = t.TestPrompts.Count(p => p.IsActive) })
             .ToListAsync(ct);
 
+        var trendSince = DateTime.UtcNow.AddDays(-30);
         var summaries = new List<TargetSummary>();
         foreach (var t in targets)
         {
@@ -43,6 +45,11 @@ public sealed class DashboardService(
                 .Select(a => new { a.Id, a.OverallScore, a.OnPageScore, a.PromptVisibilityScore, a.Status, a.CreatedAtUtc })
                 .ToListAsync(ct);
             var latest = lastTwo.FirstOrDefault();
+            var trend = await db.LiveSearchAuditLogs.AsNoTracking()
+                .Where(a => a.TargetProfileId == t.Id && a.Status != AuditStatus.Failed && a.CreatedAtUtc >= trendSince)
+                .OrderBy(a => a.CreatedAtUtc)
+                .Select(a => new TrendPoint(a.CreatedAtUtc, a.OverallScore, a.OnPageScore, a.PromptVisibilityScore))
+                .ToListAsync(ct);
 
             var engineRows = latest is null ? [] : await db.EngineProbeResults.AsNoTracking()
                 .Where(r => r.AuditLogId == latest.Id && r.ErrorMessage == null)
@@ -54,7 +61,7 @@ public sealed class DashboardService(
                 .ToList();
             summaries.Add(new TargetSummary(t.Id, t.Code, t.DisplayName, t.BaseUrl, t.ChannelKind,
                 latest?.OverallScore, latest?.OnPageScore, latest?.PromptVisibilityScore,
-                lastTwo.Count > 1 ? lastTwo[1].OverallScore : null, latest?.Status, latest?.CreatedAtUtc, t.Prompts, engines));
+                lastTwo.Count > 1 ? lastTwo[1].OverallScore : null, latest?.Status, latest?.CreatedAtUtc, t.Prompts, engines, trend));
         }
 
         var since = DateTime.UtcNow.AddDays(-30);
@@ -153,6 +160,95 @@ public sealed class DashboardService(
 
         return new AnalyticsData(trends, matrix, languages, recent, engines, topDomains);
     }
+
+    /// <summary>Per engine and day: share of answers (all channels) that named the brand or cited an owned site.</summary>
+    public async Task<IReadOnlyList<EngineSeries>> GetEngineTrendAsync(int days, CancellationToken ct = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(ct);
+        var since = DateTime.UtcNow.AddDays(-Math.Clamp(days, 1, 3650));
+        var rows = await db.EngineProbeResults.AsNoTracking()
+            .Where(r => r.AuditLog!.CreatedAtUtc >= since && r.ErrorMessage == null)
+            .Select(r => new { r.EngineKey, r.EngineName, r.AuditLog!.CreatedAtUtc, Visible = r.MentionsBrand || r.CitesOwnedDomain })
+            .ToListAsync(ct);
+
+        return rows.GroupBy(r => r.EngineKey, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new EngineSeries(g.Key, g.OrderByDescending(r => r.CreatedAtUtc).First().EngineName,
+                g.GroupBy(r => DateOnly.FromDateTime(r.CreatedAtUtc))
+                    .OrderBy(d => d.Key)
+                    .Select(d => new EngineDayRate(d.Key, d.Count(), d.Count(r => r.Visible)))
+                    .ToList()))
+            .OrderBy(s => s.Engine, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    public const int AnswerPageSize = 120;
+
+    /// <summary>The latest engine answers, newest first, for the Answers tab.</summary>
+    public async Task<IReadOnlyList<AnswerRow>> GetAnswersAsync(AnswerFilter filter, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        await using var db = await contextFactory.CreateDbContextAsync(ct);
+        var query = db.EngineProbeResults.AsNoTracking();
+        if (!string.IsNullOrEmpty(filter.EngineKey)) query = query.Where(r => r.EngineKey == filter.EngineKey);
+        if (!string.IsNullOrEmpty(filter.ChannelCode)) query = query.Where(r => r.AuditLog!.TargetProfile!.Code == filter.ChannelCode);
+        if (!string.IsNullOrEmpty(filter.LanguageCode)) query = query.Where(r => r.LanguageCode == filter.LanguageCode);
+        query = filter.Visibility switch
+        {
+            "visible" => query.Where(r => r.ErrorMessage == null && (r.MentionsBrand || r.CitesOwnedDomain)),
+            "missing" => query.Where(r => r.ErrorMessage == null && !r.MentionsBrand && !r.CitesOwnedDomain),
+            "errors" => query.Where(r => r.ErrorMessage != null),
+            _ => query,
+        };
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var term = filter.Search.Trim();
+            query = query.Where(r => r.PromptText.Contains(term) || (r.AnswerExcerpt != null && r.AnswerExcerpt.Contains(term)));
+        }
+
+        var rows = await query
+            .OrderByDescending(r => r.AuditLog!.CreatedAtUtc).ThenBy(r => r.EngineName).ThenBy(r => r.PromptText)
+            .Take(AnswerPageSize)
+            .Select(r => new
+            {
+                r.Id, r.AuditLog!.CreatedAtUtc, Code = r.AuditLog.TargetProfile!.Code, Channel = r.AuditLog.TargetProfile.DisplayName,
+                r.AuditLog.TargetProfile.OwnedDomains, r.AuditLog.TargetProfile.BrandKeywords,
+                r.EngineKey, r.EngineName, r.LanguageCode, r.PromptText, r.AnswerExcerpt, r.MatchedKeywords,
+                r.MentionsBrand, r.CitesOwnedDomain, r.CitationsJson, r.ErrorMessage,
+            })
+            .ToListAsync(ct);
+
+        return rows.Select(r =>
+        {
+            var owned = (r.OwnedDomains ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var sources = ParseCitations(r.CitationsJson)
+                .Select(c => OwnedDomainMatcher.HostOf(c) is { } host ? new CitedSource(host, c.Url, OwnedDomainMatcher.FindOwned([c], owned).Count > 0) : null)
+                .OfType<CitedSource>()
+                .ToList();
+            return new AnswerRow(r.Id, r.CreatedAtUtc, r.Code, r.Channel, r.EngineKey, r.EngineName, r.LanguageCode, r.PromptText, r.AnswerExcerpt,
+                SplitList(r.MatchedKeywords), SplitList(r.BrandKeywords), r.MentionsBrand, r.CitesOwnedDomain, sources, r.ErrorMessage);
+        }).ToList();
+    }
+
+    /// <summary>Filter choices for the Answers tab: engines, channels and languages that have answers.</summary>
+    public async Task<AnswerFacets> GetAnswerFacetsAsync(CancellationToken ct = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(ct);
+        var engines = await db.EngineProbeResults.AsNoTracking().Select(r => new { r.EngineKey, r.EngineName }).Distinct().ToListAsync(ct);
+        var languages = await db.EngineProbeResults.AsNoTracking().Select(r => r.LanguageCode).Distinct().ToListAsync(ct);
+        var channels = await db.TargetProfiles.AsNoTracking().Where(t => t.IsActive).OrderBy(t => t.Code)
+            .Select(t => new { t.Code, t.DisplayName }).ToListAsync(ct);
+        return new AnswerFacets(
+            engines.GroupBy(e => e.EngineKey, StringComparer.OrdinalIgnoreCase).Select(g => (g.Key, g.First().EngineName)).OrderBy(e => e.Item2, StringComparer.Ordinal).ToList(),
+            channels.Select(c => (c.Code, c.DisplayName)).ToList(),
+            languages.Order(StringComparer.Ordinal).ToList());
+    }
+
+    private static List<string> SplitList(string? value) =>
+        (value ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    public async Task<RunState> GetRunStateAsync(CancellationToken ct = default) =>
+        new(await IsRunRequestedAsync(ct),
+            AuditRunStatus.TryParse(await settings.GetStringAsync(SettingKeys.AuditRunStatus, ct), DateTime.UtcNow));
 
     /// <summary>How far back the suggestion feed looks to tell fixed problems from ones that never existed.</summary>
     public const int SuggestionHistoryDays = 90;

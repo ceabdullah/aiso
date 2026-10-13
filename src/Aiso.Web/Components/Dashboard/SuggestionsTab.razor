@@ -2,10 +2,11 @@
 @implements IDisposable
 @inject DashboardService Dashboard
 @inject IJSRuntime JS
+@inject DashboardEvents Events
 
 @if (_feed is null)
 {
-    <p class="muted">Loading…</p>
+    <Skeleton Rows="4" />
     return;
 }
 
@@ -20,7 +21,7 @@
             <AuthorizeView Policy="@AisoPolicies.CanEdit">
                 <button class="btn btn-primary btn-sm" disabled="@(_runQueued || _busy)" @onclick="RequestRunAsync"
                         title="Re-reads the pages and re-asks the AI engines, then updates every suggestion's status">
-                    @(_runQueued ? "Re-check queued…" : "Re-check now")
+                    <Icon Name="refresh" /> @(_runQueued ? "Re-check queued…" : "Re-check now")
                 </button>
             </AuthorizeView>
         </div>
@@ -95,7 +96,7 @@
                             <span class="tag">@s.Category</span>
                             @foreach (var e in s.Engines)
                             {
-                                <span class="tag tag-engine">@e</span>
+                                <EngineBadge Key="@e.ToLowerInvariant()" Name="@e" />
                             }
                         </div>
 
@@ -214,9 +215,16 @@
 
     protected override async Task OnInitializedAsync()
     {
+        Events.AuditFinished += OnAuditFinishedAsync;
         await LoadAsync();
         _ = PollAsync();
     }
+
+    private Task OnAuditFinishedAsync() => InvokeAsync(async () =>
+    {
+        await LoadAsync();
+        StateHasChanged();
+    });
 
     private async Task PollAsync()
     {
@@ -357,6 +365,7 @@
 
     public void Dispose()
     {
+        Events.AuditFinished -= OnAuditFinishedAsync;
         _cts.Cancel();
         _cts.Dispose();
     }

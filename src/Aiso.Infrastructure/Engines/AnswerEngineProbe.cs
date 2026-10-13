@@ -106,9 +106,15 @@ public sealed class AnswerEngineProbe(
         TimeoutSeconds = configured.TimeoutSeconds,
     };
 
+    public Task<IReadOnlyList<EngineProbeOutcome>> ProbeAsync(
+        TargetProfile target, IReadOnlyCollection<AutomatedTestPrompt> prompts, IReadOnlyList<ActiveEngine> engines,
+        CancellationToken cancellationToken) =>
+        ProbeAsync(target, prompts, engines, null, cancellationToken);
+
+    /// <param name="onAnswer">Called after each answer, e.g. to report progress. Engines run in parallel, so it can be called concurrently.</param>
     public async Task<IReadOnlyList<EngineProbeOutcome>> ProbeAsync(
         TargetProfile target, IReadOnlyCollection<AutomatedTestPrompt> prompts, IReadOnlyList<ActiveEngine> engines,
-        CancellationToken cancellationToken)
+        Func<EngineProbeOutcome, Task>? onAnswer, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(prompts);
@@ -128,7 +134,12 @@ public sealed class AnswerEngineProbe(
                 var results = new List<EngineProbeOutcome>();
                 foreach (var prompt in prompts)
                 {
-                    results.Add(await AskOneAsync(target, engine, prompt, cancellationToken));
+                    var outcome = await AskOneAsync(target, engine, prompt, cancellationToken);
+                    results.Add(outcome);
+                    if (onAnswer is not null)
+                    {
+                        await onAnswer(outcome);
+                    }
                 }
 
                 return results;

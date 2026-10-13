@@ -80,6 +80,7 @@ public sealed class PipelineEndToEndTests : IDisposable
 
         var pipeline = new AuditPipelineService(factory, scraper, probe, agent,
             new AisoMarkdownExporter(workspace, NullLogger<AisoMarkdownExporter>.Instance), alerts,
+            new Aiso.Infrastructure.Settings.SystemSettingsService(factory),
             workspace, Options.Create(new ClaudeCliOptions()), NullLogger<AuditPipelineService>.Instance);
 
         var summary = await pipeline.RunAsync(ct);

@@ -10,6 +10,7 @@ using Aiso.Infrastructure.Persistence;
 using Aiso.Infrastructure.Reporting;
 using Aiso.Infrastructure.Runtime;
 using Aiso.Infrastructure.Scraping;
+using Aiso.Infrastructure.Settings;
 using Aiso.Infrastructure.Workspace;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -30,6 +31,7 @@ public sealed class AuditPipelineService(
     IClaudeCliOrchestrator claude,
     AisoMarkdownExporter exporter,
     IAisoNotificationService notifications,
+    ISystemSettingsService settings,
     IOptions<WorkspaceOptions> workspace,
     IOptions<ClaudeCliOptions> cliOptions,
     ILogger<AuditPipelineService> logger)
@@ -68,14 +70,30 @@ public sealed class AuditPipelineService(
         logger.LogInformation("Pipeline run {RunId} started for {Count} target(s), {EngineCount} answer engine(s) [{Engines}] → {Folder}.",
             runId, targets.Count, engines.Count, string.Join(", ", engines.Select(e => e.Definition.DisplayName)), runFolder);
 
+        using var progress = new RunProgressReporter(settings, logger, targets.Count, targets.Sum(t => t.TestPrompts.Count) * engines.Count);
+        try
+        {
+            return await RunTargetsAsync(db, targets, engines, progress, runId, started, runFolder, ws, ct);
+        }
+        finally
+        {
+            await progress.ClearAsync();
+        }
+    }
+
+    private async Task<PipelineRunSummary> RunTargetsAsync(AisoDbContext db, List<TargetProfile> targets, IReadOnlyList<ActiveEngine> engines,
+        RunProgressReporter progress, Guid runId, DateTime started, string runFolder, WorkspaceOptions ws, CancellationToken ct)
+    {
         var audits = new List<(TargetProfile Target, LiveSearchAuditLog Log)>();
         foreach (var target in targets)
         {
-            audits.Add((target, await AuditTargetAsync(db, target, runId, runFolder, engines, ct)));
+            audits.Add((target, await AuditTargetAsync(db, target, runId, runFolder, engines, progress, ct)));
+            await progress.TargetDoneAsync(ct);
         }
 
         await db.SaveChangesAsync(ct);
 
+        await progress.StageAsync(cliOptions.Value.Enabled ? "Writing remediation plans" : "Saving results", null, ct);
         var plansExported = 0;
         var alertRows = new List<VisibilityAlertRow>();
         foreach (var (target, log) in audits)
@@ -111,7 +129,7 @@ public sealed class AuditPipelineService(
     }
 
     private async Task<LiveSearchAuditLog> AuditTargetAsync(
-        AisoDbContext db, TargetProfile target, Guid runId, string runFolder, IReadOnlyList<ActiveEngine> engines, CancellationToken ct)
+        AisoDbContext db, TargetProfile target, Guid runId, string runFolder, IReadOnlyList<ActiveEngine> engines, RunProgressReporter progress, CancellationToken ct)
     {
         using var activity = ActivitySource.StartActivity("Audit target");
         activity?.SetTag("aiso.target", target.Code);
@@ -121,6 +139,7 @@ public sealed class AuditPipelineService(
 
         try
         {
+            await progress.StageAsync("Reading the page", target.DisplayName, ct);
             var scrape = await scraper.ScrapeAsync(new Uri(target.BaseUrl), target.ChannelKind, ct);
             var scrapePath = Path.Combine(runFolder, $"{target.Code}.scrape.json");
             await WriteJsonAsync(scrapePath, new { target = Describe(target), scrape }, ct);
@@ -128,7 +147,8 @@ public sealed class AuditPipelineService(
             IReadOnlyList<EngineProbeOutcome> probes = [];
             if (target.TestPrompts.Count > 0)
             {
-                probes = await probe.ProbeAsync(target, target.TestPrompts.ToList(), engines, ct);
+                await progress.StageAsync("Asking AI engines", target.DisplayName, ct);
+                probes = await probe.ProbeAsync(target, target.TestPrompts.ToList(), engines, o => progress.AnswerAsync(o.EngineName, ct), ct);
                 if (probes.Count == 0)
                 {
                     logger.LogWarning("No answer engine is switched on with an API key; skipping {Count} prompt(s) for {Target}.", target.TestPrompts.Count, target.Code);

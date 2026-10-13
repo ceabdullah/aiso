@@ -1,5 +1,14 @@
 @* Coloured score pill: red below half the threshold, amber below threshold, green otherwise. *@
-<span class="score @Css" title="@Title">@(Value is null ? "—" : Value.Value.ToString("0.0", CultureInfo.InvariantCulture))</span>
+<span class="score @Css" title="@Title">
+    @if (Value is { } v)
+    {
+        <CountUp Value="v" />
+    }
+    else
+    {
+        <text>—</text>
+    }
+</span>
 
 @code {
     [Parameter] public decimal? Value { get; set; }

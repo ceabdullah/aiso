@@ -1,5 +1,6 @@
 using Aiso.Domain.Enums;
 using Aiso.Infrastructure.Recommendations;
+using Aiso.Infrastructure.Runtime;
 using Aiso.Infrastructure.Scraping;
 
 namespace Aiso.Web.Services;
@@ -17,7 +18,8 @@ public sealed record TargetSummary(
     AuditStatus? LastStatus,
     DateTime? LastAuditUtc,
     int ActivePrompts,
-    IReadOnlyList<EngineRate> Engines);
+    IReadOnlyList<EngineRate> Engines,
+    IReadOnlyList<TrendPoint> Trend);
 
 /// <summary>Share of one engine's answers (latest run) in which the brand was visible.</summary>
 public sealed record EngineRate(string Engine, int Evaluated, int Visible, int Cited)
@@ -155,3 +157,45 @@ public sealed record FeedChannel(
 public sealed record FeedItem(FeedChannel Channel, Suggestion Suggestion);
 
 public sealed record SuggestionFeed(DateTime GeneratedAtUtc, IReadOnlyList<FeedChannel> Channels, IReadOnlyList<FeedItem> Items);
+
+/// <summary>Share of one engine's answers, across all channels, that showed the brand on one day.</summary>
+public sealed record EngineDayRate(DateOnly Day, int Answers, int Visible)
+{
+    public decimal Rate => Answers == 0 ? 0 : Math.Round(100m * Visible / Answers, 1);
+}
+
+public sealed record EngineSeries(string EngineKey, string Engine, IReadOnlyList<EngineDayRate> Days);
+
+/// <summary>A cited source: host for display, full URL for the link, and whether the brand owns it.</summary>
+public sealed record CitedSource(string Host, string Url, bool IsOwned);
+
+/// <summary>One engine's answer to one test prompt, for the Answers tab.</summary>
+public sealed record AnswerRow(
+    Guid Id,
+    DateTime AtUtc,
+    string ChannelCode,
+    string Channel,
+    string EngineKey,
+    string Engine,
+    string LanguageCode,
+    string Prompt,
+    string? Excerpt,
+    IReadOnlyList<string> MatchedKeywords,
+    IReadOnlyList<string> BrandKeywords,
+    bool MentionsBrand,
+    bool CitesOwnedDomain,
+    IReadOnlyList<CitedSource> Sources,
+    string? Error)
+{
+    public bool IsVisible => MentionsBrand || CitesOwnedDomain;
+}
+
+public sealed record AnswerFilter(string? EngineKey, string? ChannelCode, string? LanguageCode, string Visibility, string? Search);
+
+/// <summary>What the live strip shows: an audit queued, running (with progress), or neither.</summary>
+public sealed record RunState(bool Queued, AuditRunStatus? Running);
+
+public sealed record AnswerFacets(
+    IReadOnlyList<(string Key, string Name)> Engines,
+    IReadOnlyList<(string Code, string Name)> Channels,
+    IReadOnlyList<string> Languages);

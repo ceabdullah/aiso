@@ -14,6 +14,7 @@ public static class SettingKeys
     public const string SearchRegion = "SearchRegion";
     public const string SearchCity = "SearchCity";
     public const string SearchTimezone = "SearchTimezone";
+    public const string AuditRunStatus = "AuditRunStatus";
 
     public static readonly IReadOnlyDictionary<string, (string Value, string Description)> Defaults =
         new Dictionary<string, (string, string)>(StringComparer.Ordinal)
@@ -29,5 +30,6 @@ public static class SettingKeys
             [SearchRegion] = ("Istanbul", "Region or province the AI engines search from."),
             [SearchCity] = ("Istanbul", "City the AI engines search from."),
             [SearchTimezone] = ("Europe/Istanbul", "IANA time zone sent with the search location."),
+            [AuditRunStatus] = ("", "Progress of the running audit, written by the worker (JSON; empty when idle)."),
         };
 }
