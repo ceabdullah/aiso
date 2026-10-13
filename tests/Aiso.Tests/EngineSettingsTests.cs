@@ -44,7 +44,7 @@ public sealed class EngineSettingsTests : IDisposable
             [new OpenAiResponsesClient(new StubHttpFactory(_ => throw new InvalidOperationException())),
              new PerplexitySonarClient(new StubHttpFactory(_ => throw new InvalidOperationException())),
              new AnthropicEngineClient()],
-            NullLogger<AnswerEngineProbe>.Instance);
+            new SystemSettingsService(_factory),             NullLogger<AnswerEngineProbe>.Instance);
 
     private readonly EngineApiKeyProtector _protector = new(new EphemeralDataProtectionProvider());
 

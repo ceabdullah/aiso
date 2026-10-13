@@ -20,6 +20,14 @@ public sealed class PerplexitySonarClient(IHttpClientFactory httpClientFactory) 
             ["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = prompt }),
             ["max_tokens"] = engine.MaxOutputTokens,
         };
+        if (engine.Location is { } location)
+        {
+            var userLocation = new JsonObject { ["country"] = location.Country };
+            if (location.Region is not null) userLocation["region"] = location.Region;
+            if (location.City is not null) userLocation["city"] = location.City;
+            body["web_search_options"] = new JsonObject { ["user_location"] = userLocation };
+        }
+
         return JsonPost($"{engine.ResolvedBaseUrl}/chat/completions", body, engine.ApiKey);
     }
 

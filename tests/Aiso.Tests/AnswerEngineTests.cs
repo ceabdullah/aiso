@@ -142,16 +142,17 @@ public class AnswerEngineProbeTests
         options.Engines["gemini"] = new() { DisplayName = "Gemini", Kind = AnswerEngineKind.GeminiGrounded, ApiKey = "", Model = "g" }; // no key → skipped
         options.Engines["claude"] = new() { DisplayName = "Claude", Kind = AnswerEngineKind.AnthropicWebSearch, Enabled = false, ApiKey = "c", Model = "m" }; // disabled → skipped
 
+        string? openAiBody = null;
         var http = new StubHttpFactory(req => req.RequestUri!.Host switch
         {
-            "api.openai.com" => Json("""{"output":[{"type":"message","content":[{"type":"output_text","text":"Akbank and Garanti.","annotations":[{"type":"url_citation","url":"https://www.teb.com.tr/x","title":"t"}]}]}]}"""),
+            "api.openai.com" => Capture(req, out openAiBody, """{"output":[{"type":"message","content":[{"type":"output_text","text":"Akbank and Garanti.","annotations":[{"type":"url_citation","url":"https://www.teb.com.tr/x","title":"t"}]}]}]}"""),
             "api.perplexity.ai" => new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("rate limited") },
             _ => throw new InvalidOperationException(req.RequestUri.ToString()),
         });
 
         var probe = new AnswerEngineProbe(Options.Create(options), ConfigurationOnlyEngineSettingsStore.Instance,
             [new OpenAiResponsesClient(http), new PerplexitySonarClient(http), new GeminiGroundedClient(http), new AnthropicEngineClient()],
-            NullLogger<AnswerEngineProbe>.Instance);
+            new DefaultSettings(), NullLogger<AnswerEngineProbe>.Instance);
 
         var engines = await probe.GetActiveEnginesAsync(TestContext.Current.CancellationToken);
         Assert.Equal(["chatgpt", "perplexity"], engines.Select(e => e.Key));
@@ -165,9 +166,20 @@ public class AnswerEngineProbeTests
         var chatgpt = outcomes.Where(o => o.EngineKey == "chatgpt").ToList();
         Assert.All(chatgpt, o => { Assert.True(o.Succeeded); Assert.False(o.MentionsBrand); Assert.True(o.CitesOwnedDomain); Assert.True(o.IsVisible); });
         Assert.All(outcomes.Where(o => o.EngineKey == "perplexity"), o => Assert.Contains("429", o.Error, StringComparison.Ordinal));
+
+        // The default search location (System Settings) reaches the engine request.
+        var location = JsonNode.Parse(openAiBody!)!["tools"]![0]!["user_location"]!;
+        Assert.Equal("TR", location["country"]!.GetValue<string>());
+        Assert.Equal("Europe/Istanbul", location["timezone"]!.GetValue<string>());
     }
 
     private static HttpResponseMessage Json(string json) => new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+
+    private static HttpResponseMessage Capture(HttpRequestMessage request, out string? body, string json)
+    {
+        body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+        return Json(json);
+    }
 }
 
 /// <summary>Routes every named client to a stub handler.</summary>
@@ -179,5 +191,71 @@ internal sealed class StubHttpFactory(Func<HttpRequestMessage, HttpResponseMessa
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(respond(request));
+    }
+}
+
+/// <summary>System settings at their defaults (search location Turkey/Istanbul), without a database.</summary>
+internal sealed class DefaultSettings : Aiso.Infrastructure.Settings.ISystemSettingsService
+{
+    public Task<string> GetStringAsync(string key, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Aiso.Domain.SettingKeys.Defaults.TryGetValue(key, out var d) ? d.Value : string.Empty);
+
+    public Task<int> GetIntAsync(string key, CancellationToken cancellationToken = default) =>
+        Task.FromResult(int.Parse(Aiso.Domain.SettingKeys.Defaults[key].Value, System.Globalization.CultureInfo.InvariantCulture));
+
+    public Task<IReadOnlyList<GlobalSystemSetting>> GetAllAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<GlobalSystemSetting>>([]);
+
+    public Task SetAsync(string key, string value, string? updatedBy, CancellationToken cancellationToken = default) => Task.CompletedTask;
+}
+
+public class SearchLocationTests
+{
+    private static readonly SearchLocation Istanbul = SearchLocation.Create(" tr ", "Istanbul", "Istanbul", "Europe/Istanbul")!;
+    private static readonly StubHttpFactory NoHttp = new(_ => throw new InvalidOperationException());
+
+    private static JsonNode Body(HttpRequestMessage r) => JsonNode.Parse(r.Content!.ReadAsStringAsync().GetAwaiter().GetResult())!;
+
+    [Fact]
+    public void Create_normalises_the_country_and_needs_one()
+    {
+        Assert.Equal("TR", Istanbul.Country);
+        Assert.Null(SearchLocation.Create("  ", "Istanbul", "Istanbul", null));
+        Assert.Null(SearchLocation.Create("TR", "", null, " ")!.Region);
+    }
+
+    [Fact]
+    public void OpenAi_sends_an_approximate_user_location_only_when_set()
+    {
+        var engine = new AnswerEngineDefinition { Kind = AnswerEngineKind.OpenAiResponses, ApiKey = "k", Model = "m", Location = Istanbul };
+        using var withLocation = new OpenAiResponsesClient(NoHttp).BuildRequest(engine, "q");
+        var location = Body(withLocation)["tools"]![0]!["user_location"]!;
+        Assert.Equal("approximate", location["type"]!.GetValue<string>());
+        Assert.Equal("Istanbul", location["city"]!.GetValue<string>());
+
+        engine.Location = null;
+        using var without = new OpenAiResponsesClient(NoHttp).BuildRequest(engine, "q");
+        Assert.Null(Body(without)["tools"]![0]!["user_location"]);
+    }
+
+    [Fact]
+    public void Perplexity_sends_web_search_options_user_location()
+    {
+        var engine = new AnswerEngineDefinition { Kind = AnswerEngineKind.PerplexitySonar, ApiKey = "k", Model = "sonar", Location = Istanbul };
+        using var request = new PerplexitySonarClient(NoHttp).BuildRequest(engine, "q");
+        var location = Body(request)["web_search_options"]!["user_location"]!;
+        Assert.Equal("TR", location["country"]!.GetValue<string>());
+        Assert.Equal("Istanbul", location["region"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Claude_sends_the_location_on_the_web_search_tool()
+    {
+        var engine = new AnswerEngineDefinition { Kind = AnswerEngineKind.AnthropicWebSearch, ApiKey = "k", Model = "claude-opus-5-5", Location = Istanbul };
+        // RawBodyData is the JSON body the SDK sends.
+        var tool = JsonNode.Parse(JsonSerializer.Serialize(AnthropicEngineClient.BuildParams(engine, "q")))!["RawBodyData"]!["tools"]![0]!;
+        Assert.Equal("approximate", tool["user_location"]!["type"]!.GetValue<string>());
+        Assert.Equal("TR", tool["user_location"]!["country"]!.GetValue<string>());
+        Assert.Equal("Europe/Istanbul", tool["user_location"]!["timezone"]!.GetValue<string>());
     }
 }

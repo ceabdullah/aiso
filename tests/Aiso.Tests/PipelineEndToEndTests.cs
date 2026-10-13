@@ -74,7 +74,7 @@ public sealed class PipelineEndToEndTests : IDisposable
         var probe = new AnswerEngineProbe(Options.Create(engines), new EfEngineSettingsStore(factory,
             new Aiso.Infrastructure.Security.EngineApiKeyProtector(new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider()),
             TimeProvider.System, NullLogger<EfEngineSettingsStore>.Instance),
-            [new OpenAiResponsesClient(http), new PerplexitySonarClient(http)], NullLogger<AnswerEngineProbe>.Instance);
+            [new OpenAiResponsesClient(http), new PerplexitySonarClient(http)], new Aiso.Infrastructure.Settings.SystemSettingsService(factory), NullLogger<AnswerEngineProbe>.Instance);
         var agent = new StubAgent("""{"summary":"Özet.","items":[{"title":"FAQPage ekleyin","priority":"high","category":"structured-data"}]}""");
         var alerts = new CapturingNotifications();
 

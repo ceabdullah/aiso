@@ -305,3 +305,7 @@ h1:focus { outline: none; } /* FocusOnNavigate moves focus here for screen reade
     .filters-sep { display: none; }
     .feed-side .steps { display: none; }
 }
+
+/* Search location setting */
+.location-grid { display: grid; grid-template-columns: 70px 1fr 1fr 1.2fr; gap: 8px; }
+@media (max-width: 720px) { .location-grid { grid-template-columns: 70px 1fr; } }

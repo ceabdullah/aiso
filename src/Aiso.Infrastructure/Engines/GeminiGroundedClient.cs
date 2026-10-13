@@ -7,6 +7,7 @@ namespace Aiso.Infrastructure.Engines;
 /// Gemini <c>generateContent</c> with Grounding with Google Search. Sources come from
 /// <c>groundingMetadata.groundingChunks[].web</c>: <c>uri</c> is a Google redirect link and
 /// <c>title</c> carries the source domain, which <see cref="OwnedDomainMatcher"/> understands.
+/// Grounding with Google Search has no user-location option, so <see cref="AnswerEngineDefinition.Location"/> is not sent.
 /// </summary>
 public sealed class GeminiGroundedClient(IHttpClientFactory httpClientFactory) : JsonEngineClientBase(httpClientFactory)
 {

@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Aiso.Domain;
 using Aiso.Domain.Entities;
+using Aiso.Infrastructure.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -38,6 +40,7 @@ public sealed class AnswerEngineProbe(
     IOptions<AnswerEngineOptions> options,
     IEngineSettingsStore settingsStore,
     IEnumerable<IAnswerEngineClient> clients,
+    ISystemSettingsService settings,
     ILogger<AnswerEngineProbe> logger)
 {
     /// <summary>Registers the configured engines with the admin store (key status, default model).</summary>
@@ -51,12 +54,14 @@ public sealed class AnswerEngineProbe(
     public async Task<IReadOnlyList<ActiveEngine>> GetActiveEnginesAsync(CancellationToken cancellationToken)
     {
         var overrides = await settingsStore.GetOverridesAsync(cancellationToken);
+        var location = await GetSearchLocationAsync(cancellationToken);
         var byKind = clients.ToList();
         var active = new List<ActiveEngine>();
 
         foreach (var (key, configured) in options.Value.Engines.OrderBy(e => e.Key, StringComparer.Ordinal))
         {
             var definition = Apply(key, configured, overrides.GetValueOrDefault(key));
+            definition.Location = location;
             var client = byKind.FirstOrDefault(c => c.Kind == definition.Kind);
             if (client is null)
             {
@@ -78,6 +83,14 @@ public sealed class AnswerEngineProbe(
 
         return active;
     }
+
+    /// <summary>The search location from System Settings; read every run so dashboard changes apply without a restart.</summary>
+    public async Task<SearchLocation?> GetSearchLocationAsync(CancellationToken cancellationToken) =>
+        SearchLocation.Create(
+            await settings.GetStringAsync(SettingKeys.SearchCountry, cancellationToken),
+            await settings.GetStringAsync(SettingKeys.SearchRegion, cancellationToken),
+            await settings.GetStringAsync(SettingKeys.SearchCity, cancellationToken),
+            await settings.GetStringAsync(SettingKeys.SearchTimezone, cancellationToken));
 
     internal static AnswerEngineDefinition Apply(string key, AnswerEngineDefinition configured, EngineOverride? admin) => new()
     {

@@ -46,6 +46,12 @@ public sealed class AnswerEngineDefinition
 
     public int TimeoutSeconds { get; set; } = 180;
 
+    /// <summary>
+    /// Where the engine should search from, as a customer's device would. Set per run from System Settings;
+    /// engines that have no location option (Gemini's Google Search grounding) ignore it.
+    /// </summary>
+    public SearchLocation? Location { get; set; }
+
     public string ResolvedBaseUrl => (string.IsNullOrWhiteSpace(BaseUrl) ? DefaultBaseUrl(Kind) : BaseUrl).TrimEnd('/');
 
     public bool IsUsable => Enabled && !string.IsNullOrWhiteSpace(ApiKey) && !string.IsNullOrWhiteSpace(Model)

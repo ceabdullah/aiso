@@ -34,7 +34,13 @@ public sealed class AnthropicEngineClient : IAnswerEngineClient
             Model = engine.Model,
             MaxTokens = engine.MaxOutputTokens,
             Messages = [new() { Role = Role.User, Content = prompt }],
-            Tools = [new ToolUnion(new WebSearchTool20260209 { MaxUses = engine.MaxSearches })],
+            Tools = [new ToolUnion(new WebSearchTool20260209
+            {
+                MaxUses = engine.MaxSearches,
+                UserLocation = engine.Location is { } l
+                    ? new UserLocation { Country = l.Country, Region = l.Region, City = l.City, Timezone = l.Timezone }
+                    : null,
+            })],
         };
     }
 
