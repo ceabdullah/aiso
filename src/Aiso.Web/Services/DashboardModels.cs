@@ -1,4 +1,5 @@
 using Aiso.Domain.Enums;
+using Aiso.Infrastructure.Recommendations;
 using Aiso.Infrastructure.Scraping;
 
 namespace Aiso.Web.Services;
@@ -139,3 +140,18 @@ public sealed class EngineEditModel
 
     public bool HasAnyKey => KeyConfigured || (HasUiKey && !RemoveApiKey) || !string.IsNullOrWhiteSpace(NewApiKey);
 }
+
+/// <summary>A channel in the suggestion feed, with what the Apply kits need to know about it.</summary>
+public sealed record FeedChannel(
+    Guid Id,
+    string Code,
+    string DisplayName,
+    string BaseUrl,
+    TargetChannelKind ChannelKind,
+    DateTime? LastAuditUtc,
+    bool HasEngineData,
+    KitContext Kit);
+
+public sealed record FeedItem(FeedChannel Channel, Suggestion Suggestion);
+
+public sealed record SuggestionFeed(DateTime GeneratedAtUtc, IReadOnlyList<FeedChannel> Channels, IReadOnlyList<FeedItem> Items);

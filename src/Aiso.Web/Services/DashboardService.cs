@@ -5,6 +5,7 @@ using Aiso.Domain;
 using Aiso.Domain.Entities;
 using Aiso.Domain.Enums;
 using Aiso.Infrastructure.Persistence;
+using Aiso.Infrastructure.Recommendations;
 using Aiso.Infrastructure.Scraping;
 using Aiso.Infrastructure.Security;
 using Aiso.Infrastructure.Settings;
@@ -153,6 +154,62 @@ public sealed class DashboardService(
         return new AnalyticsData(trends, matrix, languages, recent, engines, topDomains);
     }
 
+    /// <summary>How far back the suggestion feed looks to tell fixed problems from ones that never existed.</summary>
+    public const int SuggestionHistoryDays = 90;
+
+    public async Task<SuggestionFeed> GetSuggestionFeedAsync(CancellationToken ct = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(ct);
+        var since = DateTime.UtcNow.AddDays(-SuggestionHistoryDays);
+
+        var targets = await db.TargetProfiles.AsNoTracking().Where(t => t.IsActive).OrderBy(t => t.Code)
+            .Select(t => new
+            {
+                t.Id, t.Code, t.DisplayName, t.BaseUrl, t.ChannelKind, t.OwnedDomains, t.PrimaryLanguageCode,
+                Questions = t.TestPrompts.Where(p => p.IsActive && p.LanguageCode == t.PrimaryLanguageCode)
+                    .OrderBy(p => p.CreatedAtUtc).Select(p => p.PromptText).ToList(),
+            })
+            .ToListAsync(ct);
+
+        var audits = await db.LiveSearchAuditLogs.AsNoTracking()
+            .Where(a => a.CreatedAtUtc >= since && a.Status != AuditStatus.Failed)
+            .Select(a => new { a.Id, a.TargetProfileId, a.CreatedAtUtc, a.MetricsJson })
+            .ToListAsync(ct);
+
+        var probes = (await db.EngineProbeResults.AsNoTracking()
+            .Where(r => r.AuditLog!.CreatedAtUtc >= since && r.AuditLog.Status != AuditStatus.Failed && r.ErrorMessage == null)
+            .Select(r => new { r.AuditLogId, r.PromptId, r.PromptText, r.LanguageCode, r.EngineKey, r.EngineName, r.MentionsBrand, r.CitesOwnedDomain, r.CitationsJson })
+            .ToListAsync(ct)).ToLookup(r => r.AuditLogId);
+
+        var channels = new List<FeedChannel>();
+        var items = new List<FeedItem>();
+        foreach (var t in targets)
+        {
+            var owned = (t.OwnedDomains ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var history = audits.Where(a => a.TargetProfileId == t.Id)
+                .Select(a => new AuditSnapshot(a.CreatedAtUtc, AuditMetricsDocument.TryParse(a.MetricsJson),
+                    probes[a.Id].Select(p => new ProbeSnapshot(p.PromptId, p.PromptText, p.LanguageCode, p.EngineKey, p.EngineName,
+                        p.MentionsBrand, p.CitesOwnedDomain, CitedHostsNotOwned(p.CitationsJson, owned))).ToList()))
+                .ToList();
+
+            var channel = new FeedChannel(t.Id, t.Code, t.DisplayName, t.BaseUrl, t.ChannelKind,
+                history.Count == 0 ? null : history.Max(h => h.AtUtc),
+                history.Any(h => h.Probes.Count > 0),
+                new KitContext(t.DisplayName, t.BaseUrl, t.PrimaryLanguageCode, t.Questions));
+            channels.Add(channel);
+            items.AddRange(VisibilityAdvisor.Analyze(history, owned).Select(s => new FeedItem(channel, s)));
+        }
+
+        return new SuggestionFeed(DateTime.UtcNow, channels, items);
+    }
+
+    private static List<string> CitedHostsNotOwned(string? citationsJson, IReadOnlyList<string> owned) =>
+        ParseCitations(citationsJson)
+            .Where(c => OwnedDomainMatcher.FindOwned([c], owned).Count == 0)
+            .Select(OwnedDomainMatcher.HostOf)
+            .OfType<string>()
+            .ToList();
+
     private static List<EngineCitation> ParseCitations(string? json)
     {
         try
@@ -164,6 +221,9 @@ public sealed class DashboardService(
             return [];
         }
     }
+
+    public async Task<bool> IsRunRequestedAsync(CancellationToken ct = default) =>
+        !string.IsNullOrWhiteSpace(await settings.GetStringAsync(SettingKeys.AuditRunRequestedAtUtc, ct));
 
     public async Task RequestRunAsync(string? user, CancellationToken ct = default) =>
         await settings.SetAsync(SettingKeys.AuditRunRequestedAtUtc,

@@ -1,0 +1,363 @@
+@using Aiso.Infrastructure.Recommendations
+@implements IDisposable
+@inject DashboardService Dashboard
+@inject IJSRuntime JS
+
+@if (_feed is null)
+{
+    <p class="muted">Loading…</p>
+    return;
+}
+
+<div class="feed-layout">
+    <div class="feed-main">
+        <div class="feed-head">
+            <span class="live" title="The feed refreshes itself every @RefreshSeconds seconds">
+                <span class="live-dot" aria-hidden="true"></span> Live
+            </span>
+            <span class="muted small">updated @Ago(_feed.GeneratedAtUtc)</span>
+            <span class="spacer"></span>
+            <AuthorizeView Policy="@AisoPolicies.CanEdit">
+                <button class="btn btn-primary btn-sm" disabled="@(_runQueued || _busy)" @onclick="RequestRunAsync"
+                        title="Re-reads the pages and re-asks the AI engines, then updates every suggestion's status">
+                    @(_runQueued ? "Re-check queued…" : "Re-check now")
+                </button>
+            </AuthorizeView>
+        </div>
+
+        <div class="filters" role="group" aria-label="Filter suggestions">
+            @foreach (var (key, label) in StatusFilters)
+            {
+                <button type="button" class="pill @(_status == key ? "on" : null)" aria-pressed="@(_status == key)" @onclick="() => _status = key">
+                    @label <span class="pill-count">@CountFor(key)</span>
+                </button>
+            }
+            <span class="filters-sep" aria-hidden="true"></span>
+            @foreach (var team in Teams)
+            {
+                <button type="button" class="pill @(_team == team ? "on" : null)" aria-pressed="@(_team == team)" @onclick="() => _team = team">@team</button>
+            }
+            <select class="input input-sm" aria-label="Channel" @bind="_channelCode">
+                <option value="">All channels</option>
+                @foreach (var c in _feed.Channels)
+                {
+                    <option value="@c.Code">@c.DisplayName</option>
+                }
+            </select>
+        </div>
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-error">Couldn't refresh: @_error. Retrying in @RefreshSeconds seconds.</div>
+        }
+
+        @{ var visible = Visible().ToList(); }
+        @if (visible.Count == 0)
+        {
+            <div class="panel feed-empty">
+                @if (_feed.Items.Count == 0)
+                {
+                    <p><strong>No suggestions yet.</strong></p>
+                    <p class="muted">They appear after the first audit. Use “Re-check now”, or wait for the scheduled run.</p>
+                }
+                else
+                {
+                    <p class="muted">Nothing matches these filters.</p>
+                }
+            </div>
+        }
+
+        <ol class="feed" aria-live="polite">
+            @foreach (var item in visible)
+            {
+                var s = item.Suggestion;
+                var id = ItemId(item);
+                <li @key="id" class="post @StatusCss(s.Status) @(_fresh.Contains(id) ? "fresh" : null)">
+                    <div class="post-avatar" aria-hidden="true">@Initials(item.Channel.DisplayName)</div>
+                    <div class="post-body">
+                        <div class="post-meta">
+                            <strong>@item.Channel.DisplayName</strong>
+                            <span class="muted small">· @(item.Channel.LastAuditUtc is { } at ? $"audited {Ago(at)}" : "not audited")</span>
+                            @if (_fresh.Contains(id))
+                            {
+                                <span class="chip chip-new">Updated</span>
+                            }
+                            <span class="spacer"></span>
+                            <span class="chip @StatusChip(s.Status)">@StatusLabel(s.Status)</span>
+                        </div>
+
+                        <h3 class="post-title">@s.Title</h3>
+                        <p class="post-text">@s.Detail</p>
+
+                        <div class="post-tags">
+                            <span class="tag prio-@s.Priority.ToString().ToLowerInvariant()">@s.Priority</span>
+                            <span class="tag">@s.Owner</span>
+                            <span class="tag">@s.Category</span>
+                            @foreach (var e in s.Engines)
+                            {
+                                <span class="tag tag-engine">@e</span>
+                            }
+                        </div>
+
+                        <p class="post-status small"><span aria-hidden="true">@StatusIcon(s.Status)</span> @s.StatusDetail</p>
+                        <p class="post-evidence muted small mono">@s.Evidence</p>
+
+                        @if (s.EngineTips.Count > 0)
+                        {
+                            <details class="post-tips">
+                                <summary class="small">Why @(s.EngineTips.Count == 1 ? s.EngineTips[0].Engine : "these engines") may miss it</summary>
+                                <ul class="small">
+                                    @foreach (var tip in s.EngineTips)
+                                    {
+                                        <li><strong>@tip.Engine:</strong> @tip.Tip</li>
+                                    }
+                                </ul>
+                            </details>
+                        }
+
+                        @if (s.Status != SuggestionStatus.Confirmed)
+                        {
+                            var kit = ApplyKit.For(s, item.Channel.Kit);
+                            if (kit.Count > 0)
+                            {
+                                <div class="post-actions">
+                                    <button type="button" class="btn btn-sm @(_open.Contains(id) ? null : "btn-primary")" aria-expanded="@_open.Contains(id)" @onclick="() => Toggle(id)">
+                                        @(_open.Contains(id) ? "Hide apply kit" : $"Apply · {kit.Count} item{(kit.Count == 1 ? "" : "s")} for {s.Owner}")
+                                    </button>
+                                </div>
+                                @if (_open.Contains(id))
+                                {
+                                    <div class="kit">
+                                        @foreach (var k in kit)
+                                        {
+                                            var copyId = $"{id}/{k.FileName}";
+                                            <section class="kit-item">
+                                                <div class="kit-head">
+                                                    <strong>@k.Label</strong>
+                                                    <span class="tag">@k.Destination</span>
+                                                    <span class="spacer"></span>
+                                                    <button type="button" class="btn btn-ghost btn-sm" @onclick="() => CopyAsync(copyId, k.Content)">@(_copied != copyId ? "Copy" : _copyFailed ? "Copy blocked: use Download" : "Copied ✓")</button>
+                                                    <a class="btn btn-ghost btn-sm" download="@k.FileName" href="@DataUri(k.Content)">Download</a>
+                                                </div>
+                                                <p class="muted small">@k.HowTo</p>
+                                                <pre class="kit-code">@k.Content</pre>
+                                            </section>
+                                        }
+                                        <p class="muted small">Text in [square brackets] is for the team to fill in. After it's published, “Re-check now” confirms it from the live page and the engines' answers.</p>
+                                    </div>
+                                }
+                            }
+                        }
+                    </div>
+                </li>
+            }
+        </ol>
+    </div>
+
+    <aside class="feed-side">
+        <div class="panel">
+            <h3>Channels</h3>
+            <ul class="side-list">
+                @foreach (var c in _feed.Channels)
+                {
+                    var open = _feed.Items.Count(i => i.Channel.Id == c.Id && i.Suggestion.Status == SuggestionStatus.ToDo);
+                    var done = _feed.Items.Count(i => i.Channel.Id == c.Id && i.Suggestion.Status == SuggestionStatus.Confirmed);
+                    <li>
+                        <button type="button" class="side-channel @(_channelCode == c.Code ? "on" : null)" @onclick="() => _channelCode = _channelCode == c.Code ? string.Empty : c.Code">
+                            <span class="post-avatar sm" aria-hidden="true">@Initials(c.DisplayName)</span>
+                            <span class="side-name">@c.DisplayName</span>
+                            <span class="side-counts small"><span class="warn-text">@open to do</span> · <span class="ok-text">@done confirmed</span></span>
+                        </button>
+                        @if (!c.HasEngineData)
+                        {
+                            <p class="muted small side-note">No AI engine answers measured yet; only page checks. Add API keys in AI Engines.</p>
+                        }
+                    </li>
+                }
+            </ul>
+        </div>
+        <div class="panel">
+            <h3>How a fix is confirmed</h3>
+            <ol class="small steps">
+                <li><strong>Apply</strong> the kit in the owning system: web CMS, robots.txt, App Store Connect or the app.</li>
+                <li><strong>Live:</strong> the next audit re-reads the public page and sees the change.</li>
+                <li><strong>Confirmed:</strong> the real engines (ChatGPT, Gemini, Perplexity, Claude) are asked the test prompts again and show the brand more often.</li>
+            </ol>
+            <p class="muted small">Engines re-crawl on their own schedule, so step 3 can take days to weeks. The internal LLM isn't used for this: it has no search index, so it can't tell what other engines will answer.</p>
+        </div>
+    </aside>
+</div>
+
+@code {
+    private const int RefreshSeconds = 20;
+
+    private static readonly (string Key, string Label)[] StatusFilters =
+        [("all", "All"), ("todo", "To do"), ("live", "Waiting on engines"), ("confirmed", "Confirmed")];
+
+    private static readonly string[] Teams = ["All teams", "Web", "Digital Marketing", "Mobile"];
+
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private readonly CancellationTokenSource _cts = new();
+    private readonly HashSet<string> _open = [];
+    private HashSet<string> _fresh = [];
+    private Dictionary<string, SuggestionStatus>? _lastSeen;
+    private SuggestionFeed? _feed;
+    private string _status = "all";
+    private string _team = "All teams";
+    private string _channelCode = string.Empty;
+    private string? _copied;
+    private bool _copyFailed;
+    private string? _error;
+    private bool _busy;
+    private bool _runQueued;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _ = PollAsync();
+    }
+
+    private async Task PollAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(RefreshSeconds));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadAsync();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Component disposed.
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var feed = await Dashboard.GetSuggestionFeedAsync(_cts.Token);
+            var seen = feed.Items.ToDictionary(ItemId, i => i.Suggestion.Status);
+
+            // Highlight suggestions that are new or changed status since the previous refresh (not on first load).
+            _fresh = _lastSeen is null ? [] : seen.Where(kv => !_lastSeen.TryGetValue(kv.Key, out var before) || before != kv.Value)
+                .Select(kv => kv.Key).ToHashSet();
+            _lastSeen = seen;
+            _feed = feed;
+            _error = null;
+            _runQueued = await Dashboard.IsRunRequestedAsync(_cts.Token);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    // Freshly changed items first, like a feed; then open work by priority, then fixes waiting on engines, then confirmed ones.
+    private IEnumerable<FeedItem> Visible() => _feed!.Items
+        .Where(i => _status == "all" || StatusKey(i.Suggestion.Status) == _status)
+        .Where(i => _team == "All teams" || i.Suggestion.Owner == _team)
+        .Where(i => _channelCode.Length == 0 || i.Channel.Code == _channelCode)
+        .OrderBy(i => _fresh.Contains(ItemId(i)) ? 0 : 1)
+        .ThenBy(i => i.Suggestion.Status)
+        .ThenBy(i => i.Suggestion.Priority)
+        .ThenBy(i => i.Channel.DisplayName, StringComparer.Ordinal);
+
+    private int CountFor(string key) => _feed!.Items.Count(i => key == "all" || StatusKey(i.Suggestion.Status) == key);
+
+    private void Toggle(string id)
+    {
+        if (!_open.Remove(id))
+        {
+            _open.Add(id);
+        }
+    }
+
+    private async Task CopyAsync(string id, string text)
+    {
+        bool copied;
+        try
+        {
+            copied = await JS.InvokeAsync<bool>("aisoClipboard.copy", text);
+        }
+        catch (JSException)
+        {
+            copied = false;
+        }
+
+        _copied = id;
+        _copyFailed = !copied;
+    }
+
+    private async Task RequestRunAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Dashboard.RequestRunAsync((await AuthState).User.Identity?.Name);
+            _runQueued = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string ItemId(FeedItem i) => $"{i.Channel.Code}/{i.Suggestion.Key}";
+
+    private static string StatusKey(SuggestionStatus s) => s switch
+    {
+        SuggestionStatus.ToDo => "todo",
+        SuggestionStatus.LiveAwaitingEngines => "live",
+        _ => "confirmed",
+    };
+
+    private static string StatusLabel(SuggestionStatus s) => s switch
+    {
+        SuggestionStatus.ToDo => "To do",
+        SuggestionStatus.LiveAwaitingEngines => "Live · waiting on engines",
+        _ => "Confirmed",
+    };
+
+    private static string StatusCss(SuggestionStatus s) => $"is-{StatusKey(s)}";
+
+    private static string StatusChip(SuggestionStatus s) => s switch
+    {
+        SuggestionStatus.ToDo => "chip-warn",
+        SuggestionStatus.LiveAwaitingEngines => "chip-info",
+        _ => "chip-ok",
+    };
+
+    private static string StatusIcon(SuggestionStatus s) => s switch
+    {
+        SuggestionStatus.ToDo => "○",
+        SuggestionStatus.LiveAwaitingEngines => "◐",
+        _ => "●",
+    };
+
+    private static string Initials(string name) =>
+        string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(w => char.ToUpperInvariant(w[0])));
+
+    private static string DataUri(string content) => "data:text/plain;charset=utf-8," + Uri.EscapeDataString(content);
+
+    private static string Ago(DateTime utc)
+    {
+        var span = DateTime.UtcNow - utc;
+        return span.TotalSeconds < 45 ? "just now"
+            : span.TotalMinutes < 60 ? $"{(int)span.TotalMinutes} min ago"
+            : span.TotalHours < 24 ? $"{(int)span.TotalHours} h ago"
+            : $"{(int)span.TotalDays} d ago";
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

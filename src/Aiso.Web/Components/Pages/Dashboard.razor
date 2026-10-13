@@ -26,6 +26,7 @@
     @switch (_active)
     {
         case "summary": <SummaryTab /> break;
+        case "suggestions": <SuggestionsTab /> break;
         case "analytics": <AnalyticsTab /> break;
         case "prompts": <PromptsTab /> break;
         case "reports": <ReportsTab /> break;
@@ -45,6 +46,7 @@
     private static readonly (string Key, string Label, string Policy)[] Tabs =
     [
         ("summary", "Summary", AisoPolicies.CanView),
+        ("suggestions", "Suggestions", AisoPolicies.CanView),
         ("analytics", "Advanced Analytics", AisoPolicies.CanView),
         ("prompts", "Test Prompts", AisoPolicies.CanEdit),
         ("reports", "Reports", AisoPolicies.CanView),
