@@ -14,7 +14,9 @@ public sealed class OpenAiResponsesClient(IHttpClientFactory httpClientFactory) 
     public override HttpRequestMessage BuildRequest(AnswerEngineDefinition engine, string prompt)
     {
         ArgumentNullException.ThrowIfNull(engine);
-        var webSearch = new JsonObject { ["type"] = "web_search" };
+        // Cost control: with the defaults one answer used ~7 searches and ~55K input tokens of search results.
+        // "low" context keeps less of each result; max_tool_calls caps the searches per answer.
+        var webSearch = new JsonObject { ["type"] = "web_search", ["search_context_size"] = "low" };
         if (engine.Location is { } location)
         {
             webSearch["user_location"] = UserLocation(location);
@@ -27,6 +29,11 @@ public sealed class OpenAiResponsesClient(IHttpClientFactory httpClientFactory) 
             ["tools"] = new JsonArray(webSearch),
             ["max_output_tokens"] = engine.MaxOutputTokens,
         };
+        if (engine.MaxSearches > 0)
+        {
+            body["max_tool_calls"] = engine.MaxSearches;
+        }
+
         return JsonPost($"{engine.ResolvedBaseUrl}/v1/responses", body, engine.ApiKey);
     }
 

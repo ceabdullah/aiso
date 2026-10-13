@@ -98,8 +98,9 @@ else
                     {
                         <label class="field">
                             <span class="field-label">Web searches per answer</span>
-                            <input class="input input-sm" type="number" min="1" max="20" @bind="e.MaxSearchesOverride" placeholder="5"
+                            <input class="input input-sm" type="number" min="1" max="20" @bind="e.MaxSearchesOverride" placeholder="default"
                                    aria-label="@($"{e.DisplayName} searches per answer")" />
+                            <span class="muted small">Each search is billed by the engine vendor, and its results add input tokens. Fewer searches cost less.</span>
                         </label>
                     }
                 </div>

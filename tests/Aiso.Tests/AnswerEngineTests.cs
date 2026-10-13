@@ -239,6 +239,16 @@ public class SearchLocationTests
     }
 
     [Fact]
+    public void OpenAi_caps_searches_and_uses_low_search_context()
+    {
+        var engine = new AnswerEngineDefinition { Kind = AnswerEngineKind.OpenAiResponses, ApiKey = "k", Model = "gpt-5.5", MaxSearches = 2 };
+        using var request = new OpenAiResponsesClient(NoHttp).BuildRequest(engine, "q");
+        var body = Body(request);
+        Assert.Equal(2, body["max_tool_calls"]!.GetValue<int>());
+        Assert.Equal("low", body["tools"]![0]!["search_context_size"]!.GetValue<string>());
+    }
+
+    [Fact]
     public void Perplexity_sends_web_search_options_user_location()
     {
         var engine = new AnswerEngineDefinition { Kind = AnswerEngineKind.PerplexitySonar, ApiKey = "k", Model = "sonar", Location = Istanbul };

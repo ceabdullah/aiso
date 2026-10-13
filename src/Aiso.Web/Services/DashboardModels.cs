@@ -138,7 +138,7 @@ public sealed class EngineEditModel
     /// <summary>Answers this engine would give per month with the current prompts and audit interval.</summary>
     public int EstimatedAnswersPerMonth { get; set; }
 
-    public bool SupportsSearchLimit => Kind == "AnthropicWebSearch";
+    public bool SupportsSearchLimit => Kind is "AnthropicWebSearch" or "OpenAiResponses";
 
     public bool HasAnyKey => KeyConfigured || (HasUiKey && !RemoveApiKey) || !string.IsNullOrWhiteSpace(NewApiKey);
 }
