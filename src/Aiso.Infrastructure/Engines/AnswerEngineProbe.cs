@@ -105,6 +105,7 @@ public sealed class AnswerEngineProbe(
         MaxOutputTokens = configured.MaxOutputTokens,
         MaxSearches = admin?.MaxSearches is > 0 and var n ? n : configured.MaxSearches,
         TimeoutSeconds = configured.TimeoutSeconds,
+        EnableThinking = configured.EnableThinking,
     };
 
     public Task<IReadOnlyList<EngineProbeOutcome>> ProbeAsync(

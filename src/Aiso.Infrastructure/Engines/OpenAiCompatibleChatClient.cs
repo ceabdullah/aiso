@@ -20,7 +20,13 @@ public sealed class OpenAiCompatibleChatClient(IHttpClientFactory httpClientFact
             ["model"] = engine.Model,
             ["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = prompt }),
             ["max_tokens"] = engine.MaxOutputTokens,
+            ["stream"] = false,
         };
+        if (engine.EnableThinking is { } thinking)
+        {
+            body["chat_template_kwargs"] = new JsonObject { ["enable_thinking"] = thinking };
+        }
+
         return JsonPost($"{engine.ResolvedBaseUrl}/chat/completions", body, engine.ApiKey);
     }
 

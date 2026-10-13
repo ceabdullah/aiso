@@ -53,6 +53,12 @@ public sealed class AnswerEngineDefinition
     public int TimeoutSeconds { get; set; } = 180;
 
     /// <summary>
+    /// Plain chat engines only: when set, sends <c>chat_template_kwargs.enable_thinking</c> (NVIDIA-hosted reasoning models
+    /// such as Nemotron). False gives quick, direct answers like a chat app; null leaves the model's default.
+    /// </summary>
+    public bool? EnableThinking { get; set; }
+
+    /// <summary>
     /// Where the engine should search from, as a customer's device would. Set per run from System Settings;
     /// engines that have no location option (Gemini's Google Search grounding) ignore it.
     /// </summary>

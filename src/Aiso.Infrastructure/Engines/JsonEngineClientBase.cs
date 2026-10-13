@@ -43,6 +43,8 @@ public abstract class JsonEngineClientBase(IHttpClientFactory httpClientFactory)
         {
             Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
         };
+        // Ask for one JSON response explicitly; some OpenAI-compatible hosts (NVIDIA) otherwise may stream or hold the request.
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         if (bearer is not null)
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);

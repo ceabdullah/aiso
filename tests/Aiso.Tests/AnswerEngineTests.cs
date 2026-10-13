@@ -285,6 +285,14 @@ public class OpenAiCompatibleChatTests
         Assert.Equal("meta/llama-3.3-70b-instruct", body["model"]!.GetValue<string>());
         Assert.Null(body["tools"]);                // no web search
         Assert.Null(body["web_search_options"]);   // nor a location
+        Assert.False(body["stream"]!.GetValue<bool>());
+        Assert.Null(body["chat_template_kwargs"]); // thinking left at the model default unless configured
+
+        engine.EnableThinking = false;
+        using var noThinking = client.BuildRequest(engine, "q");
+        var quick = JsonNode.Parse(await noThinking.Content!.ReadAsStringAsync(TestContext.Current.CancellationToken))!;
+        Assert.False(quick["chat_template_kwargs"]!["enable_thinking"]!.GetValue<bool>());
+        Assert.Contains(request.Headers.Accept, a => a.MediaType == "application/json");
         Assert.False(engine.SearchesWeb);
 
         var answer = client.ParseResponse(JsonDocument.Parse("""{"choices":[{"message":{"content":"TEB öne çıkıyor."}}]}""").RootElement);
