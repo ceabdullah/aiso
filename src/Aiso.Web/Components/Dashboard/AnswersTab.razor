@@ -171,7 +171,7 @@
     // Splits the answer into plain and brand-keyword parts. Turkish-aware, case-insensitive (İ/ı safe).
     private static List<(string Text, bool Match)> Highlight(AnswerRow r)
     {
-        var text = r.Excerpt!;
+        var text = AnswerText.ToPlain(r.Excerpt!);
         var keywords = (r.MatchedKeywords.Count > 0 ? r.MatchedKeywords : r.BrandKeywords).Where(k => k.Length > 1).ToList();
         var parts = new List<(string, bool)>();
         var pos = 0;

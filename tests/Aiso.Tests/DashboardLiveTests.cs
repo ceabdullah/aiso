@@ -138,3 +138,20 @@ public sealed class DashboardLiveTests : IDisposable
         public AisoDbContext CreateDbContext() => new(new DbContextOptionsBuilder<AisoDbContext>().UseSqlite(connection).Options);
     }
 }
+
+public class AnswerTextTests
+{
+    [Fact]
+    public void Markdown_becomes_plain_text_and_links_keep_their_text()
+    {
+        const string md = "### Yaygın bankalar\n\n**Kısa cevap:** TEB ve Enpara. ([apps.apple.com](https://apps.apple.com/tr/x?y=1))\n\n\n\nKod: `CEPTETEB`";
+        Assert.Equal("Yaygın bankalar\n\nKısa cevap: TEB ve Enpara. (apps.apple.com)\n\nKod: CEPTETEB", AnswerText.ToPlain(md));
+    }
+
+    [Fact]
+    public void Markup_stays_text()
+    {
+        // Answers are rendered as text, so a script tag is shown, never run; ToPlain must not try to "clean" it into HTML.
+        Assert.Equal("<script>x</script>", AnswerText.ToPlain("<script>x</script>"));
+    }
+}
