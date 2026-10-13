@@ -13,6 +13,12 @@ public enum AnswerEngineKind
 
     /// <summary>Perplexity Sonar chat completions (always web-grounded).</summary>
     PerplexitySonar = 4,
+
+    /// <summary>
+    /// Any OpenAI-compatible chat completions endpoint (NVIDIA build.nvidia.com by default). No web search: answers
+    /// come from the model's training data, so it simulates an engine for demos and is left out of the visibility scores.
+    /// </summary>
+    OpenAiCompatibleChat = 5,
 }
 
 /// <summary>
@@ -52,6 +58,9 @@ public sealed class AnswerEngineDefinition
     /// </summary>
     public SearchLocation? Location { get; set; }
 
+    /// <summary>False for plain chat models: they answer from training data, cite nothing and don't count toward scores.</summary>
+    public bool SearchesWeb => Kind != AnswerEngineKind.OpenAiCompatibleChat;
+
     public string ResolvedBaseUrl => (string.IsNullOrWhiteSpace(BaseUrl) ? DefaultBaseUrl(Kind) : BaseUrl).TrimEnd('/');
 
     public bool IsUsable => Enabled && !string.IsNullOrWhiteSpace(ApiKey) && !string.IsNullOrWhiteSpace(Model)
@@ -63,6 +72,7 @@ public sealed class AnswerEngineDefinition
         AnswerEngineKind.OpenAiResponses => "https://api.openai.com",
         AnswerEngineKind.GeminiGrounded => "https://generativelanguage.googleapis.com",
         AnswerEngineKind.PerplexitySonar => "https://api.perplexity.ai",
+        AnswerEngineKind.OpenAiCompatibleChat => "https://integrate.api.nvidia.com/v1",
         _ => string.Empty,
     };
 }

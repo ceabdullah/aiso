@@ -36,6 +36,10 @@ public sealed class DashboardService(
             .ToListAsync(ct);
 
         var trendSince = DateTime.UtcNow.AddDays(-30);
+        // Plain chat engines (no web search) are shown but kept out of the headline visibility figure.
+        var simulated = (await db.AnswerEngineSettings.AsNoTracking()
+                .Where(s => s.Kind == nameof(AnswerEngineKind.OpenAiCompatibleChat)).Select(s => s.EngineKey).ToListAsync(ct))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var summaries = new List<TargetSummary>();
         foreach (var t in targets)
         {
@@ -53,10 +57,11 @@ public sealed class DashboardService(
 
             var engineRows = latest is null ? [] : await db.EngineProbeResults.AsNoTracking()
                 .Where(r => r.AuditLogId == latest.Id && r.ErrorMessage == null)
-                .Select(r => new { r.EngineName, r.MentionsBrand, r.CitesOwnedDomain })
+                .Select(r => new { r.EngineKey, r.EngineName, r.MentionsBrand, r.CitesOwnedDomain })
                 .ToListAsync(ct);
-            var engines = engineRows.GroupBy(r => r.EngineName)
-                .Select(g => new EngineRate(g.Key, g.Count(), g.Count(r => r.MentionsBrand || r.CitesOwnedDomain), g.Count(r => r.CitesOwnedDomain)))
+            var engines = engineRows.GroupBy(r => (r.EngineKey, r.EngineName))
+                .Select(g => new EngineRate(g.Key.EngineName, g.Count(), g.Count(r => r.MentionsBrand || r.CitesOwnedDomain), g.Count(r => r.CitesOwnedDomain),
+                    simulated.Contains(g.Key.EngineKey)))
                 .OrderBy(e => e.Engine, StringComparer.Ordinal)
                 .ToList();
             summaries.Add(new TargetSummary(t.Id, t.Code, t.DisplayName, t.BaseUrl, t.ChannelKind,

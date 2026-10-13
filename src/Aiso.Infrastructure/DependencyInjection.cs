@@ -73,6 +73,7 @@ public static class DependencyInjection
         builder.Services.AddSingleton<IAnswerEngineClient, OpenAiResponsesClient>();
         builder.Services.AddSingleton<IAnswerEngineClient, GeminiGroundedClient>();
         builder.Services.AddSingleton<IAnswerEngineClient, PerplexitySonarClient>();
+        builder.Services.AddSingleton<IAnswerEngineClient, OpenAiCompatibleChatClient>();
         builder.Services.AddSingleton<IEngineSettingsStore, EfEngineSettingsStore>();
         builder.Services.AddSingleton<AnswerEngineProbe>();
 

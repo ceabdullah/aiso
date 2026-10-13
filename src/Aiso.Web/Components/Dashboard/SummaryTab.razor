@@ -137,10 +137,11 @@
         }
     }
 
-    private int AnswersMeasured => _summary!.Targets.Sum(t => t.Engines.Sum(e => e.Evaluated));
+    // Web-searching engines only, like the scores; simulated engines are shown in the rings but not counted here.
+    private int AnswersMeasured => _summary!.Targets.Sum(t => t.Engines.Where(e => !e.Simulated).Sum(e => e.Evaluated));
 
     private decimal? AnswerVisibility => AnswersMeasured == 0 ? null
-        : Math.Round(100m * _summary!.Targets.Sum(t => t.Engines.Sum(e => e.Visible)) / AnswersMeasured, 0);
+        : Math.Round(100m * _summary!.Targets.Sum(t => t.Engines.Where(e => !e.Simulated).Sum(e => e.Visible)) / AnswersMeasured, 0);
 
     private int BelowThreshold => _summary!.Targets.Count(t => t.OverallScore < _summary.AlertThreshold);
 

@@ -54,11 +54,18 @@ public sealed class PipelineEndToEndTests : IDisposable
         var engines = new AnswerEngineOptions();
         engines.Engines["chatgpt"] = new() { DisplayName = "ChatGPT", Kind = AnswerEngineKind.OpenAiResponses, ApiKey = "o", Model = "gpt" };
         engines.Engines["perplexity"] = new() { DisplayName = "Perplexity", Kind = AnswerEngineKind.PerplexitySonar, ApiKey = "p", Model = "sonar" };
+        // A simulated engine (plain chat, no web search) that always names TEB: stored and shown, but must not move the scores.
+        engines.Engines["nvidia"] = new() { DisplayName = "NVIDIA (simulated)", Kind = AnswerEngineKind.OpenAiCompatibleChat, ApiKey = "n", Model = "meta/llama" };
         var perplexityCalls = 0;
         var http = new StubHttpFactory(req =>
         {
             var body = System.Text.Json.Nodes.JsonNode.Parse(req.Content!.ReadAsStringAsync().GetAwaiter().GetResult())!.ToJsonString(
                 new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+            if (req.RequestUri!.Host == "integrate.api.nvidia.com")
+            {
+                return Json("""{"choices":[{"message":{"content":"TEB iyi bir seçenek."}}]}""");
+            }
+
             return req.RequestUri!.Host == "api.openai.com"
                 ? Json(body.Contains("KOBİ", StringComparison.Ordinal)
                     ? """{"output":[{"type":"message","content":[{"type":"output_text","text":"TEB ve Garanti öne çıkıyor.","annotations":[]}]}]}"""
@@ -74,7 +81,7 @@ public sealed class PipelineEndToEndTests : IDisposable
         var probe = new AnswerEngineProbe(Options.Create(engines), new EfEngineSettingsStore(factory,
             new Aiso.Infrastructure.Security.EngineApiKeyProtector(new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider()),
             TimeProvider.System, NullLogger<EfEngineSettingsStore>.Instance),
-            [new OpenAiResponsesClient(http), new PerplexitySonarClient(http)], new Aiso.Infrastructure.Settings.SystemSettingsService(factory), NullLogger<AnswerEngineProbe>.Instance);
+            [new OpenAiResponsesClient(http), new PerplexitySonarClient(http), new OpenAiCompatibleChatClient(http)], new Aiso.Infrastructure.Settings.SystemSettingsService(factory), NullLogger<AnswerEngineProbe>.Instance);
         var agent = new StubAgent("""{"summary":"Özet.","items":[{"title":"FAQPage ekleyin","priority":"high","category":"structured-data"}]}""");
         var alerts = new CapturingNotifications();
 
@@ -95,7 +102,7 @@ public sealed class PipelineEndToEndTests : IDisposable
         await using var db = await factory.CreateDbContextAsync(ct);
         var log = await db.LiveSearchAuditLogs.SingleAsync(ct);
         Assert.Equal(AuditStatus.Succeeded, log.Status);
-        Assert.Equal(4, log.PromptsEvaluated);                // 2 prompts × 2 engines
+        Assert.Equal(4, log.PromptsEvaluated);                // 2 prompts × 2 engines (the simulated engine is not scored)
         Assert.Equal(1, log.PromptsMentioningBrand);          // ChatGPT, Turkish prompt
         Assert.Equal(1, log.PromptsCitingDomain);             // Perplexity cited teb.com.tr once
         Assert.Equal(50m, log.PromptVisibilityScore);         // 2 of 4 answers visible
@@ -103,12 +110,13 @@ public sealed class PipelineEndToEndTests : IDisposable
         Assert.NotEmpty(AuditMetricsDocument.TryParse(log.MetricsJson)!.Signals);
 
         var rows = await db.EngineProbeResults.ToListAsync(ct);
-        Assert.Equal(4, rows.Count);
+        Assert.Equal(6, rows.Count);
+        Assert.Equal(2, rows.Count(r => r.EngineKey == "nvidia" && r.MentionsBrand)); // stored, though not scored
         Assert.Equal(2, rows.Count(r => r.EngineName == "Perplexity"));
         Assert.Contains(rows, r => r.EngineName == "Perplexity" && r.CitesOwnedDomain && r.CitationsJson!.Contains("teb.com.tr", StringComparison.Ordinal));
 
         // The run registered both engines for the admin page, with key status.
-        Assert.Equal(["chatgpt", "perplexity"], await db.AnswerEngineSettings.Where(e => e.KeyConfigured).OrderBy(e => e.EngineKey).Select(e => e.EngineKey).ToListAsync(ct));
+        Assert.Equal(["chatgpt", "nvidia", "perplexity"], await db.AnswerEngineSettings.Where(e => e.KeyConfigured).OrderBy(e => e.EngineKey).Select(e => e.EngineKey).ToListAsync(ct));
 
         var plan = await db.AisoRemediationPlans.SingleAsync(ct);
         Assert.Equal(RemediationStatus.Published, plan.Status);

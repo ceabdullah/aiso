@@ -23,7 +23,8 @@ public sealed record EngineProbeOutcome(
     IReadOnlyList<EngineCitation> OwnedCitations,
     IReadOnlyList<string> MatchedKeywords,
     string? Error,
-    long LatencyMs)
+    long LatencyMs,
+    bool SearchesWeb = true)
 {
     public bool MentionsBrand => MatchedKeywords.Count > 0;
     public bool CitesOwnedDomain => OwnedCitations.Count > 0;
@@ -193,6 +194,7 @@ public sealed class AnswerEngineProbe(
             OwnedDomainMatcher.FindOwned(answer.Citations, target.GetOwnedDomains()),
             BrandMatcher.MatchKeywords(answer.Text, target.GetBrandKeywords(), prompt.LanguageCode),
             error,
-            latencyMs);
+            latencyMs,
+            engine.Definition.SearchesWeb);
     }
 }

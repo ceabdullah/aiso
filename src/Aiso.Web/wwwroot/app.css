@@ -441,3 +441,6 @@ h1:focus { outline: none; } /* FocusOnNavigate moves focus here for screen reade
 }
 .answers-filters > select.input-sm { margin-left: 0; }
 .run-text > span { margin-left: 4px; }
+/* Simulated engines (plain chat, no web search): faded ring and italic label; not part of the scores. */
+.engine-ring.simulated .ring-fill { opacity: .6; }
+.engine-ring.simulated .ring-label { font-style: italic; }

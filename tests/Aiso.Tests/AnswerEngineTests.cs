@@ -269,3 +269,26 @@ public class SearchLocationTests
         Assert.Equal("Europe/Istanbul", tool["user_location"]!["timezone"]!.GetValue<string>());
     }
 }
+
+public class OpenAiCompatibleChatTests
+{
+    [Fact]
+    public async Task Plain_chat_goes_to_nvidia_by_default_without_search_and_is_not_scored()
+    {
+        var client = new OpenAiCompatibleChatClient(new StubHttpFactory(_ => throw new InvalidOperationException()));
+        var engine = new AnswerEngineDefinition { Kind = AnswerEngineKind.OpenAiCompatibleChat, ApiKey = "nvapi-k", Model = "meta/llama-3.3-70b-instruct", Location = SearchLocation.Create("TR", null, null, null) };
+        using var request = client.BuildRequest(engine, "En iyi banka?");
+
+        Assert.Equal("https://integrate.api.nvidia.com/v1/chat/completions", request.RequestUri!.ToString());
+        Assert.Equal("Bearer", request.Headers.Authorization!.Scheme);
+        var body = JsonNode.Parse(await request.Content!.ReadAsStringAsync(TestContext.Current.CancellationToken))!;
+        Assert.Equal("meta/llama-3.3-70b-instruct", body["model"]!.GetValue<string>());
+        Assert.Null(body["tools"]);                // no web search
+        Assert.Null(body["web_search_options"]);   // nor a location
+        Assert.False(engine.SearchesWeb);
+
+        var answer = client.ParseResponse(JsonDocument.Parse("""{"choices":[{"message":{"content":"TEB öne çıkıyor."}}]}""").RootElement);
+        Assert.Equal("TEB öne çıkıyor.", answer.Text);
+        Assert.Empty(answer.Citations);
+    }
+}

@@ -185,7 +185,9 @@ public sealed class AuditPipelineService(
                 });
             }
 
-            var evaluated = probes.Where(p => p.Succeeded).ToList();
+            // Scores count only engines that search the web; simulated (plain chat) answers are stored and shown, not scored.
+            var evaluated = probes.Where(p => p.Succeeded && p.SearchesWeb).ToList();
+            var failed = probes.Count(p => !p.Succeeded);
             log.HttpStatusCode = scrape.HttpStatusCode;
             log.OnPageScore = scrape.OnPageScore;
             log.PromptsEvaluated = evaluated.Count;
@@ -197,9 +199,9 @@ public sealed class AuditPipelineService(
                 : Math.Round(OnPageWeight * log.OnPageScore + PromptWeight * log.PromptVisibilityScore, 2);
             log.SnapshotPath = workspace.Value.ToRelative(scrapePath);
             log.MetricsJson = JsonSerializer.Serialize(new AuditMetricsDocument(scrape.Metrics, scrape.Signals), SnapshotJson);
-            log.ErrorMessage = Truncate(scrape.Error ?? (probes.Count > evaluated.Count ? $"{probes.Count - evaluated.Count} engine answer(s) failed." : null));
-            log.Status = !scrape.Success && evaluated.Count == 0 ? AuditStatus.Failed
-                : !scrape.Success || probes.Count > evaluated.Count ? AuditStatus.PartiallySucceeded
+            log.ErrorMessage = Truncate(scrape.Error ?? (failed > 0 ? $"{failed} engine answer(s) failed." : null));
+            log.Status = !scrape.Success && probes.All(p => !p.Succeeded) ? AuditStatus.Failed
+                : !scrape.Success || failed > 0 ? AuditStatus.PartiallySucceeded
                 : AuditStatus.Succeeded;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

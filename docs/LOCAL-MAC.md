@@ -45,6 +45,11 @@ You're signed in automatically as a development administrator. The first start d
 
 Paste the API keys for ChatGPT, Gemini, Perplexity and Claude in **AI Engines**, then click **Run audit now** on the Summary tab.
 
+**Free demo data:** the **NVIDIA (simulated)** engine calls any OpenAI-compatible chat API (NVIDIA build.nvidia.com by
+default; change the model in AI Engines, or `BaseUrl` in configuration for another provider). These models don't search the
+web: they answer from training data and cite nothing, so their answers appear on the dashboard (faded rings, Answers tab)
+but are left out of the visibility scores. Use them to try the dashboard, not to measure AI search visibility.
+
 ## What differs from the Windows server
 
 | | Mac (development) | Windows server |
