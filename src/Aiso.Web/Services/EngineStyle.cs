@@ -17,6 +17,8 @@ public static class EngineStyle
         "nv-gptoss" => "eng-gptoss",
         "nv-deepseek" => "eng-deepseek",
         "nv-glm" => "eng-glm",
+        "nv-gemma" => "eng-deepseek",
+        "nv-mistral" => "eng-glm",
         _ => "eng-other",
     };
 }
