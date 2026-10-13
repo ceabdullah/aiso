@@ -88,7 +88,7 @@ public sealed class PipelineEndToEndTests : IDisposable
         var pipeline = new AuditPipelineService(factory, scraper, probe, agent,
             new AisoMarkdownExporter(workspace, NullLogger<AisoMarkdownExporter>.Instance), alerts,
             new Aiso.Infrastructure.Settings.SystemSettingsService(factory),
-            workspace, Options.Create(new ClaudeCliOptions()), NullLogger<AuditPipelineService>.Instance);
+            workspace, NullLogger<AuditPipelineService>.Instance);
 
         var summary = await pipeline.RunAsync(ct);
 
@@ -146,6 +146,8 @@ public sealed class PipelineEndToEndTests : IDisposable
 
     private sealed class StubAgent(string result) : IClaudeCliOrchestrator
     {
+        public bool IsEnabled => true;
+
         public string LastPrompt { get; private set; } = string.Empty;
 
         public Task<ClaudeCliResult> RunAsync(string prompt, CancellationToken cancellationToken)

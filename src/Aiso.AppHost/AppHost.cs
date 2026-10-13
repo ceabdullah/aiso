@@ -26,6 +26,8 @@ Directory.CreateDirectory(workspaceRoot);
 // claude.exe analysis needs the corporate LiteLLM gateway, which a developer laptop can't reach.
 // Off by default outside Windows so no request is sent with a placeholder key; set Aiso:ClaudeCli:Enabled to override.
 var claudeCliEnabled = builder.Configuration["Aiso:ClaudeCli:Enabled"] ?? (OperatingSystem.IsWindows() ? "true" : "false");
+// Remediation plans: claude.exe on the Windows server; elsewhere a chat model on NVIDIA (uses the NVIDIA key from AI Engines).
+var plannerProvider = builder.Configuration["Aiso:Planner:Provider"] ?? (OperatingSystem.IsWindows() ? "ClaudeCli" : "OpenAiCompatible");
 
 // Secrets: supply via `dotnet user-secrets set Parameters:llm-api-key <key>` (dev) or the
 // deployment environment (Parameters__llm-api-key). Never commit them.
@@ -69,7 +71,8 @@ var worker = builder.AddProject<Projects.Aiso_Worker>("worker")
     .WithEnvironment("Aiso__Llm__BaseUrl", llmBaseUrl)
     .WithEnvironment("Aiso__Llm__Model", llmModel)
     .WithEnvironment("Aiso__Llm__ApiKey", llmApiKey)
-    .WithEnvironment("Aiso__ClaudeCli__Enabled", claudeCliEnabled);
+    .WithEnvironment("Aiso__ClaudeCli__Enabled", claudeCliEnabled)
+    .WithEnvironment("Aiso__Planner__Provider", plannerProvider);
 
 foreach (var (engine, key) in engineKeys)
 {

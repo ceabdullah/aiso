@@ -12,6 +12,11 @@ public static class EngineStyle
         "claude" => "eng-claude",
         "chatgpt" => "eng-chatgpt",
         "perplexity" => "eng-perplexity",
+        // Simulated NVIDIA-hosted models take the next categorical slots.
+        "nvidia" => "eng-nvidia",
+        "nv-gptoss" => "eng-gptoss",
+        "nv-deepseek" => "eng-deepseek",
+        "nv-glm" => "eng-glm",
         _ => "eng-other",
     };
 }

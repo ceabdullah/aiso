@@ -77,7 +77,15 @@ public static class DependencyInjection
         builder.Services.AddSingleton<IEngineSettingsStore, EfEngineSettingsStore>();
         builder.Services.AddSingleton<AnswerEngineProbe>();
 
-        builder.Services.AddSingleton<IClaudeCliOrchestrator, ClaudeCliOrchestrator>();
+        builder.Services.AddOptions<PlannerOptions>().Bind(config.GetSection(PlannerOptions.SectionName));
+        if (new PlannerOptions { Provider = config[$"{PlannerOptions.SectionName}:Provider"] ?? "ClaudeCli" }.UsesChatModel)
+        {
+            builder.Services.AddSingleton<IClaudeCliOrchestrator, ChatModelPlanner>();
+        }
+        else
+        {
+            builder.Services.AddSingleton<IClaudeCliOrchestrator, ClaudeCliOrchestrator>();
+        }
         builder.Services.AddSingleton<AisoMarkdownExporter>();
         builder.Services.AddSingleton<IAisoNotificationService, AisoNotificationService>();
         return builder;

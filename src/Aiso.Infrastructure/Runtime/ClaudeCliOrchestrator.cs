@@ -10,9 +10,17 @@ using Microsoft.Extensions.Options;
 
 namespace Aiso.Infrastructure.Runtime;
 
+/// <summary>The remediation-plan agent: <c>claude.exe</c> (<see cref="ClaudeCliOrchestrator"/>) or a chat model (<see cref="ChatModelPlanner"/>).</summary>
 public interface IClaudeCliOrchestrator
 {
+    /// <summary>False when plans are switched off; the pipeline then skips plan generation.</summary>
+    bool IsEnabled { get; }
+
     Task<ClaudeCliResult> RunAsync(string prompt, CancellationToken cancellationToken);
+
+    /// <summary>Runs with the run's data files. Agents that read the workspace themselves (claude.exe) ignore them.</summary>
+    Task<ClaudeCliResult> RunAsync(string prompt, IReadOnlyList<string> contextFiles, CancellationToken cancellationToken) =>
+        RunAsync(prompt, cancellationToken);
 }
 
 /// <summary>
@@ -38,6 +46,8 @@ public sealed class ClaudeCliOrchestrator(
 {
     // One agent session at a time: the local model gateway is a shared, capacity-limited resource.
     private readonly SemaphoreSlim _gate = new(1, 1);
+
+    public bool IsEnabled => cliOptions.Value.Enabled;
 
     public async Task<ClaudeCliResult> RunAsync(string prompt, CancellationToken cancellationToken)
     {

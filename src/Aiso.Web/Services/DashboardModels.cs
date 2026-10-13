@@ -22,7 +22,7 @@ public sealed record TargetSummary(
     IReadOnlyList<TrendPoint> Trend);
 
 /// <summary>Share of one engine's answers (latest run) in which the brand was visible.</summary>
-public sealed record EngineRate(string Engine, int Evaluated, int Visible, int Cited, bool Simulated = false, DateTime? AsOfUtc = null)
+public sealed record EngineRate(string Engine, int Evaluated, int Visible, int Cited, bool Simulated = false, DateTime? AsOfUtc = null, string? EngineKey = null)
 {
     public decimal Rate => Evaluated == 0 ? 0 : Math.Round(100m * Visible / Evaluated, 1);
     public decimal CitedRate => Evaluated == 0 ? 0 : Math.Round(100m * Cited / Evaluated, 1);
@@ -125,6 +125,9 @@ public sealed class EngineEditModel
 
     public bool RemoveApiKey { get; set; }
 
+    /// <summary>Display name of the engine whose key this one uses (simulated engines share the NVIDIA key).</summary>
+    public string? SharedKeyFrom { get; set; }
+
     public DateTime? LastSyncedAtUtc { get; set; }
     public string? UpdatedBy { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
@@ -140,7 +143,7 @@ public sealed class EngineEditModel
 
     public bool SupportsSearchLimit => Kind is "AnthropicWebSearch" or "OpenAiResponses";
 
-    public bool HasAnyKey => KeyConfigured || (HasUiKey && !RemoveApiKey) || !string.IsNullOrWhiteSpace(NewApiKey);
+    public bool HasAnyKey => KeyConfigured || (HasUiKey && !RemoveApiKey) || !string.IsNullOrWhiteSpace(NewApiKey) || SharedKeyFrom is not null;
 }
 
 /// <summary>A channel in the suggestion feed, with what the Apply kits need to know about it.</summary>

@@ -445,3 +445,8 @@ h1:focus { outline: none; } /* FocusOnNavigate moves focus here for screen reade
 .engine-ring.simulated .ring-fill { opacity: .6; }
 .engine-ring.simulated .ring-label { font-style: italic; }
 .ring-date { font-size: 10px; color: var(--muted); margin-top: -2px; }
+/* Simulated NVIDIA-hosted models: categorical slots 5-8 of the reference palette (green, violet, magenta, red). */
+:root, [data-theme="dark"] { --eng-nvidia: #008300; --eng-gptoss: #9085e9; --eng-deepseek: #d55181; --eng-glm: #e66767; }
+[data-theme="light"] { --eng-nvidia: #008300; --eng-gptoss: #4a3aa7; --eng-deepseek: #e87ba4; --eng-glm: #e34948; }
+.eng-nvidia { --eng: var(--eng-nvidia); } .eng-gptoss { --eng: var(--eng-gptoss); }
+.eng-deepseek { --eng: var(--eng-deepseek); } .eng-glm { --eng: var(--eng-glm); }

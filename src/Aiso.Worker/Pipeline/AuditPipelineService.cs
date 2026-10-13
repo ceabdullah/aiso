@@ -33,7 +33,6 @@ public sealed class AuditPipelineService(
     IAisoNotificationService notifications,
     ISystemSettingsService settings,
     IOptions<WorkspaceOptions> workspace,
-    IOptions<ClaudeCliOptions> cliOptions,
     ILogger<AuditPipelineService> logger)
 {
     public static readonly ActivitySource ActivitySource = new("Aiso.Pipeline");
@@ -89,14 +88,15 @@ public sealed class AuditPipelineService(
 
         await db.SaveChangesAsync(ct);
 
-        await progress.StageAsync(cliOptions.Value.Enabled ? "Writing remediation plans" : "Saving results", null, ct);
+        await progress.StageAsync(claude.IsEnabled ? "Writing remediation plans" : "Saving results", null, ct);
         var plansExported = 0;
         var alertRows = new List<VisibilityAlertRow>();
         foreach (var (target, log) in audits)
         {
             var plan = log.Status == AuditStatus.Failed
                 ? null
-                : await GeneratePlanAsync(db, target, log, ws.ToRelative(runFolder), ct);
+                : await GeneratePlanAsync(db, target, log, ws.ToRelative(runFolder),
+                    [Path.Combine(runFolder, $"{target.Code}.scrape.json"), Path.Combine(runFolder, $"{target.Code}.prompts.json")], ct);
             if (plan?.Status == RemediationStatus.Published)
             {
                 plansExported++;
@@ -211,11 +211,11 @@ public sealed class AuditPipelineService(
         return log;
     }
 
-    private async Task<AisoRemediationPlan?> GeneratePlanAsync(AisoDbContext db, TargetProfile target, LiveSearchAuditLog log, string runFolderRelative, CancellationToken ct)
+    private async Task<AisoRemediationPlan?> GeneratePlanAsync(AisoDbContext db, TargetProfile target, LiveSearchAuditLog log, string runFolderRelative, IReadOnlyList<string> dataFiles, CancellationToken ct)
     {
-        if (!cliOptions.Value.Enabled)
+        if (!claude.IsEnabled)
         {
-            logger.LogInformation("Claude CLI runtime disabled; no remediation plan for {Target}.", target.Code);
+            logger.LogInformation("Remediation planner disabled; no plan for {Target}.", target.Code);
             return null;
         }
 
@@ -231,7 +231,7 @@ public sealed class AuditPipelineService(
 
         try
         {
-            var result = await claude.RunAsync(AgentPromptBuilder.Build(target, runFolderRelative, language), ct);
+            var result = await claude.RunAsync(AgentPromptBuilder.Build(target, runFolderRelative, language), dataFiles, ct);
             plan.RawAgentOutput = result.ResultText;
             plan.AgentSessionId = result.SessionId;
 

@@ -37,7 +37,7 @@ else
                 </header>
 
                 <div>
-                    @if (!e.KeyConfigured && !e.HasUiKey)
+                    @if (!e.KeyConfigured && !e.HasUiKey && e.SharedKeyFrom is null)
                     {
                         <span class="chip chip-bad">No API key</span>
                     }
@@ -54,6 +54,10 @@ else
                 <div class="engine-fields">
                     <div class="field">
                         <span class="field-label">API key</span>
+                        @if (e.SharedKeyFrom is { } owner && !e.HasUiKey)
+                        {
+                            <span class="key-status small">Uses the @owner key. Paste a key here only to give this model its own.</span>
+                        }
                         @if (e.KeyConfigured)
                         {
                             <span class="key-status small">Set on the worker host. It takes precedence over a key entered here.</span>
@@ -173,7 +177,7 @@ else
         : e.AvgLatencyMs < 1000 ? $"{e.AvgLatencyMs} ms"
         : (e.AvgLatencyMs / 1000.0).ToString("0.0 's'", CultureInfo.InvariantCulture);
 
-    private static bool Active(EngineEditModel e) => e.IsEnabled && (e.KeyConfigured || e.HasUiKey);
+    private static bool Active(EngineEditModel e) => e.IsEnabled && (e.KeyConfigured || e.HasUiKey || e.SharedKeyFrom is not null);
 
     private static string KindLabel(string kind) => kind switch
     {

@@ -59,9 +59,9 @@ public sealed class AnswerEngineProbe(
         var byKind = clients.ToList();
         var active = new List<ActiveEngine>();
 
-        foreach (var (key, configured) in options.Value.Engines.OrderBy(e => e.Key, StringComparer.Ordinal))
+        var definitions = ResolveDefinitions(overrides);
+        foreach (var (key, definition) in definitions)
         {
-            var definition = Apply(key, configured, overrides.GetValueOrDefault(key));
             definition.Location = location;
             var client = byKind.FirstOrDefault(c => c.Kind == definition.Kind);
             if (client is null)
@@ -83,6 +83,30 @@ public sealed class AnswerEngineProbe(
         }
 
         return active;
+    }
+
+    /// <summary>
+    /// Configured engines with admin overrides applied, ordered by key. Plain chat engines (simulated) without a key of
+    /// their own share the key of another plain chat engine on the same endpoint, so one NVIDIA key serves every
+    /// NVIDIA-hosted model.
+    /// </summary>
+    public IReadOnlyList<(string Key, AnswerEngineDefinition Definition)> ResolveDefinitions(IReadOnlyDictionary<string, EngineOverride> overrides)
+    {
+        ArgumentNullException.ThrowIfNull(overrides);
+        var definitions = options.Value.Engines.OrderBy(e => e.Key, StringComparer.Ordinal)
+            .Select(e => (e.Key, Definition: Apply(e.Key, e.Value, overrides.GetValueOrDefault(e.Key))))
+            .ToList();
+
+        foreach (var (_, definition) in definitions.Where(d => !d.Definition.SearchesWeb && string.IsNullOrWhiteSpace(d.Definition.ApiKey)))
+        {
+            definition.ApiKey = definitions
+                .Where(d => !d.Definition.SearchesWeb && !string.IsNullOrWhiteSpace(d.Definition.ApiKey)
+                            && string.Equals(d.Definition.ResolvedBaseUrl, definition.ResolvedBaseUrl, StringComparison.OrdinalIgnoreCase))
+                .Select(d => d.Definition.ApiKey)
+                .FirstOrDefault();
+        }
+
+        return definitions;
     }
 
     /// <summary>The search location from System Settings; read every run so dashboard changes apply without a restart.</summary>
@@ -161,7 +185,11 @@ public sealed class AnswerEngineProbe(
         try
         {
             var answer = await engine.Client.AskAsync(engine.Definition, prompt.PromptText, ct);
-            return Score(target, engine, prompt, answer, null, sw.ElapsedMilliseconds);
+            // An empty answer is a failure, not "brand not mentioned" (e.g. a reasoning model spent its whole token budget thinking).
+            var error = string.IsNullOrWhiteSpace(answer.Text) && answer.Citations.Count == 0
+                ? $"{engine.Definition.DisplayName} returned an empty answer; it may have used its token budget on reasoning."
+                : null;
+            return Score(target, engine, prompt, answer, error, sw.ElapsedMilliseconds);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException
                                    || ex.GetType().Namespace?.StartsWith("Anthropic", StringComparison.Ordinal) == true)

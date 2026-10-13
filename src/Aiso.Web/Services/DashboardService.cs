@@ -67,7 +67,7 @@ public sealed class DashboardService(
                     var newest = g.MaxBy(r => r.CreatedAtUtc)!;
                     var run = g.Where(r => r.AuditLogId == newest.AuditLogId).ToList();
                     return new EngineRate(newest.EngineName, run.Count, run.Count(r => r.MentionsBrand || r.CitesOwnedDomain), run.Count(r => r.CitesOwnedDomain),
-                        simulated.Contains(g.Key), newest.CreatedAtUtc);
+                        simulated.Contains(g.Key), newest.CreatedAtUtc, g.Key);
                 })
                 .OrderBy(e => e.Engine, StringComparer.Ordinal)
                 .ToList();
@@ -490,10 +490,17 @@ public sealed class DashboardService(
 
         var activePrompts = await db.AutomatedTestPrompts.CountAsync(p => p.IsActive && p.TargetProfile!.IsActive, ct);
         var intervalHours = Math.Clamp(await settings.GetIntAsync(SettingKeys.AuditIntervalHours, ct), 1, 24 * 30);
+        // Same rule as the worker: plain chat engines without their own key use another plain chat engine's key.
+        var keyOwner = engines.FirstOrDefault(e => e.Kind == nameof(AnswerEngineKind.OpenAiCompatibleChat) && (e.KeyConfigured || e.HasUiKey));
         var runsPerMonth = (int)Math.Ceiling(30 * 24d / intervalHours);
 
         foreach (var engine in engines)
         {
+            if (keyOwner is not null && engine != keyOwner && engine.Kind == nameof(AnswerEngineKind.OpenAiCompatibleChat) && !engine.KeyConfigured && !engine.HasUiKey)
+            {
+                engine.SharedKeyFrom = keyOwner.DisplayName;
+            }
+
             var u = usage.FirstOrDefault(x => string.Equals(x.Key, engine.EngineKey, StringComparison.OrdinalIgnoreCase));
             engine.Answers30d = u?.Answers ?? 0;
             engine.Errors30d = u?.Errors ?? 0;

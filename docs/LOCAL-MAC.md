@@ -49,6 +49,12 @@ Paste the API keys for ChatGPT, Gemini, Perplexity and Claude in **AI Engines**,
 default; change the model in AI Engines, or `BaseUrl` in configuration for another provider). These models don't search the
 web: they answer from training data and cite nothing, so their answers appear on the dashboard (faded rings, Answers tab)
 but are left out of the visibility scores. Use them to try the dashboard, not to measure AI search visibility.
+More NVIDIA-hosted models (GPT-OSS, DeepSeek, GLM, Kimi) are configured the same way and share the NVIDIA key, so
+one key in the NVIDIA card switches them all on.
+
+**Remediation plans on a Mac:** the corporate gateway isn't reachable, so plans are written by a chat model on NVIDIA
+instead of `claude.exe` (`Aiso:Planner:Provider = OpenAiCompatible`, model `nvidia/nemotron-3-super-120b-a12b`). It uses the
+NVIDIA key and gets the run's data files in its prompt. The Windows server keeps `claude.exe`.
 
 ## What differs from the Windows server
 
@@ -56,7 +62,7 @@ but are left out of the visibility scores. Use them to try the dashboard, not to
 |---|---|---|
 | Workspace | `~/AISO-Workspace` | `C:\PROJECTS\LOCAL LLM DEMO` |
 | Sign-in | automatic development user | Windows / Active Directory |
-| `claude` analysis step | off (the corporate gateway isn't reachable) | on |
+| Remediation plans | chat model on NVIDIA (`Aiso:Planner`) | `claude.exe` through the corporate gateway |
 | API key encryption | key ring in `~/.aiso/keys` (file permissions only) | key ring encrypted with DPAPI |
 
 To run the `claude` analysis step locally anyway, install the CLI (`./scripts/setup-mac.sh --with-claude`), point
