@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- CA1848/CA1873: LoggerMessage source generators are not worth the noise for this codebase. -->
+    <!-- CA2007: ConfigureAwait is irrelevant in ASP.NET Core / generic host apps. -->
+    <NoWarn>$(NoWarn);CA1848;CA1873;CA2007;CA1515;CA1031;CA1724</NoWarn>
+  </PropertyGroup>
+</Project>

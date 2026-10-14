@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <PropertyGroup>
+    <RootNamespace>Aiso.MigrationService</RootNamespace>
+    <UserSecretsId>aiso-migration-6f1c2e</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Aiso.ServiceDefaults\Aiso.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Aiso.Infrastructure\Aiso.Infrastructure.csproj" />
+    <!-- Both migration assemblies ship with the node; the configured provider picks one at runtime. -->
+    <ProjectReference Include="..\Aiso.Migrations.SqlServer\Aiso.Migrations.SqlServer.csproj" />
+    <ProjectReference Include="..\Aiso.Migrations.Oracle\Aiso.Migrations.Oracle.csproj" />
+  </ItemGroup>
+</Project>

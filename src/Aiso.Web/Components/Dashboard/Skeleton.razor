@@ -1,0 +1,24 @@
+@* Placeholder blocks shown while a tab loads, shaped like the content that is coming. *@
+<div class="skeleton-wrap" aria-busy="true" aria-label="Loading">
+    @if (Kpis > 0)
+    {
+        <div class="kpis">
+            @for (var i = 0; i < Kpis; i++)
+            {
+                <div class="kpi"><div class="sk sk-line w40"></div><div class="sk sk-block"></div></div>
+            }
+        </div>
+    }
+    <div class="@(Cards > 0 ? "cards" : "feed")">
+        @for (var i = 0; i < Math.Max(Cards, Rows); i++)
+        {
+            <div class="card"><div class="sk sk-line w60"></div><div class="sk sk-line w90"></div><div class="sk sk-line w75"></div></div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public int Kpis { get; set; }
+    [Parameter] public int Cards { get; set; }
+    [Parameter] public int Rows { get; set; }
+}

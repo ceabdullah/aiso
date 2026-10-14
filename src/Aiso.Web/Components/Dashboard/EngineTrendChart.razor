@@ -1,0 +1,137 @@
+@*
+    Visibility by AI engine over time: one line per engine on a single 0-100% axis, engine colours fixed by
+    EngineStyle, a legend plus direct end labels (<= 4 series), a hover crosshair with a tooltip listing every
+    engine on that day, and a table view for exact values.
+*@
+@if (Series.Count == 0 || Days.Count == 0)
+{
+    <p class="muted">No engine answers in this window yet. Add API keys in AI Engines and run an audit.</p>
+}
+else
+{
+    <div class="viz-legend">
+        @foreach (var s in Series)
+        {
+            <EngineBadge Key="@s.EngineKey" Name="@s.Engine" />
+        }
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost btn-sm" aria-pressed="@_table" @onclick="() => _table = !_table">@(_table ? "Show chart" : "Show table")</button>
+    </div>
+
+    @if (_table)
+    {
+        <div class="table-scroll">
+            <table class="table">
+                <thead><tr><th>Day</th>@foreach (var s in Series) { <th class="num">@s.Engine</th> }</tr></thead>
+                <tbody>
+                    @foreach (var day in Days.AsEnumerable().Reverse())
+                    {
+                        <tr>
+                            <td class="mono small">@day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)</td>
+                            @foreach (var s in Series)
+                            {
+                                var d = s.Days.FirstOrDefault(x => x.Day == day);
+                                <td class="num">@(d is null ? "—" : $"{d.Rate.ToString("0", CultureInfo.InvariantCulture)}% ({d.Visible}/{d.Answers})")</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <div class="viz-wrap" @onmouseleave="() => _hover = null">
+            <svg class="engine-trend" viewBox="0 0 @W @H" role="img" aria-label="Share of AI answers showing the brand, by engine and day">
+                @foreach (var y in new[] { 0, 25, 50, 75, 100 })
+                {
+                    <line x1="@PadL" x2="@(W - PadR)" y1="@Y(y)" y2="@Y(y)" class="grid" />
+                    @((MarkupString)SvgText(PadL - 6, Yd(y) + 3, "axis", "end", $"{y}%"))
+                }
+                @foreach (var i in LabelDays())
+                {
+                    @((MarkupString)SvgText(Xd(i), H - 6, "axis", "middle", Days[i].ToString("dd MMM", CultureInfo.InvariantCulture)))
+                }
+                @if (_hover is { } h)
+                {
+                    <line class="crosshair" x1="@X(h)" x2="@X(h)" y1="@PadT" y2="@(H - PadB)" />
+                }
+                @foreach (var s in Series)
+                {
+                    <g class="@EngineStyle.Css(s.EngineKey)">
+                        <polyline class="series-line" points="@Points(s)" />
+                        @foreach (var d in s.Days)
+                        {
+                            var i = Days.IndexOf(d.Day);
+                            <circle class="series-dot @(_hover == i ? "on" : null)" cx="@X(i)" cy="@Y(d.Rate)" r="@(_hover == i ? "5" : "3.5")" />
+                        }
+                        @if (s.Days.Count > 0 && Series.Count <= 4)
+                        {
+                            var last = s.Days[^1];
+                            @((MarkupString)SvgText(Xd(Days.IndexOf(last.Day)) + 8, Yd(last.Rate) + 4, "end-label", "start", s.Engine))
+                        }
+                    </g>
+                }
+                @for (var i = 0; i < Days.Count; i++)
+                {
+                    var idx = i;
+                    <rect class="hit" x="@HitX(i)" y="@PadT" width="@HitW" height="@(H - PadT - PadB)" @onmouseenter="() => _hover = idx" />
+                }
+            </svg>
+            @if (_hover is { } hi)
+            {
+                <div class="viz-tooltip" style="@TooltipStyle(hi)">
+                    <div class="small muted">@Days[hi].ToString("dddd d MMM yyyy", CultureInfo.InvariantCulture)</div>
+                    @foreach (var s in Series)
+                    {
+                        var d = s.Days.FirstOrDefault(x => x.Day == Days[hi]);
+                        <div class="tip-row"><EngineBadge Key="@s.EngineKey" Name="@s.Engine" /><span class="spacer"></span>
+                            <strong>@(d is null ? "—" : $"{d.Rate.ToString("0", CultureInfo.InvariantCulture)}%")</strong>
+                            @if (d is not null) { <span class="muted small">&nbsp;@d.Visible/@d.Answers</span> }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<EngineSeries> Series { get; set; } = [];
+
+    private const double W = 800, H = 240, PadL = 44, PadR = 96, PadT = 12, PadB = 26;
+    private bool _table;
+    private int? _hover;
+
+    private List<DateOnly> Days => Series.SelectMany(s => s.Days.Select(d => d.Day)).Distinct().Order().ToList();
+
+    private double Xd(int i) => Days.Count <= 1 ? (PadL + W - PadR) / 2 : PadL + i * (W - PadL - PadR) / (Days.Count - 1);
+    private string X(int i) => Xd(i).ToString("0.#", CultureInfo.InvariantCulture);
+    private double HitW => (W - PadL - PadR) / Math.Max(1, Days.Count - 1);
+    private string HitX(int i) => (Xd(i) - HitW / 2).ToString("0.#", CultureInfo.InvariantCulture);
+    private static double Yd(decimal v) => H - PadB - (double)Math.Clamp(v, 0, 100) / 100 * (H - PadT - PadB);
+    private static string Y(decimal v) => Yd(v).ToString("0.#", CultureInfo.InvariantCulture);
+    private static string Y(int v) => Y((decimal)v);
+
+    // Razor reserves <text>, so SVG text is emitted as markup; the label is HTML-encoded and numbers are invariant.
+    private static string SvgText(double x, double y, string css, string anchor, string label) =>
+        string.Create(CultureInfo.InvariantCulture,
+            $"<text x=\"{x:0.#}\" y=\"{y:0.#}\" class=\"{css}\" text-anchor=\"{anchor}\">{System.Net.WebUtility.HtmlEncode(label)}</text>");
+
+    private string Points(EngineSeries s) => string.Join(' ', s.Days.Select(d => $"{X(Days.IndexOf(d.Day))},{Y(d.Rate)}"));
+
+    // At most ~6 date labels so they never collide.
+    private IEnumerable<int> LabelDays()
+    {
+        var step = Math.Max(1, (int)Math.Ceiling(Days.Count / 6.0));
+        for (var i = 0; i < Days.Count; i += step) yield return i;
+    }
+
+    private string TooltipStyle(int i)
+    {
+        var pct = Xd(i) / W * 100;
+        return pct > 60
+            ? string.Create(CultureInfo.InvariantCulture, $"right:{100 - pct + 2:0.#}%")
+            : string.Create(CultureInfo.InvariantCulture, $"left:{pct + 2:0.#}%");
+    }
+}

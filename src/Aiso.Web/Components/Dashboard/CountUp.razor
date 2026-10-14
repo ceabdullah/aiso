@@ -1,0 +1,13 @@
+@*
+    Animated number. The text is filled in by anim.js (it counts from the previous value to this one), so Blazor
+    renders an empty element and only changes data-value; screen readers get the final value from aria-label.
+*@
+<span class="count-up" data-value="@Value.ToString(CultureInfo.InvariantCulture)" data-decimals="@Decimals"
+      aria-label="@Value.ToString(Format, CultureInfo.InvariantCulture)"></span>
+
+@code {
+    [Parameter, EditorRequired] public decimal Value { get; set; }
+    [Parameter] public int Decimals { get; set; } = 1;
+
+    private string Format => Decimals <= 0 ? "0" : "0." + new string('0', Decimals);
+}

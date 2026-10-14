@@ -1,0 +1,13 @@
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
+            <NotAuthorized>
+                <div class="empty-state">
+                    <h2>Access denied</h2>
+                    <p>Your Active Directory groups are not mapped to an AISO role. Ask an administrator to add your group in <em>Security Mappings</em>.</p>
+                </div>
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>

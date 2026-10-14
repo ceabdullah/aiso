@@ -1,0 +1,35 @@
+@* Small trend line for a channel card: the overall score over the last 30 days, on a fixed 0-100 scale. *@
+@if (Points.Count >= 2)
+{
+    <svg class="sparkline" viewBox="0 0 @W @H" preserveAspectRatio="none" role="img"
+         aria-label="@($"Overall score over {Points.Count} audits: from {Points[0].Overall:0.0} to {Points[^1].Overall:0.0}")">
+        <polygon class="spark-area" points="@Area()" />
+        <polyline class="spark-line" points="@Line()" />
+        <circle class="spark-end" cx="@X(Points.Count - 1)" cy="@Y(Points[^1].Overall)" r="3" />
+        @for (var i = 0; i < Points.Count; i++)
+        {
+            var p = Points[i];
+            <circle class="spark-hit" cx="@X(i)" cy="@Y(p.Overall)" r="7">
+                <title>@p.AtUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) UTC: @p.Overall.ToString("0.0", CultureInfo.InvariantCulture)</title>
+            </circle>
+        }
+    </svg>
+}
+else
+{
+    <span class="sparkline-empty muted small">Trend appears after the second audit</span>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<TrendPoint> Points { get; set; } = [];
+
+    private const double W = 120, H = 36, Pad = 4;
+
+    private string X(int i) => (Pad + i * (W - 2 * Pad) / Math.Max(1, Points.Count - 1)).ToString("0.#", CultureInfo.InvariantCulture);
+
+    private static string Y(decimal score) => (H - Pad - (double)Math.Clamp(score, 0, 100) / 100 * (H - 2 * Pad)).ToString("0.#", CultureInfo.InvariantCulture);
+
+    private string Line() => string.Join(' ', Points.Select((p, i) => $"{X(i)},{Y(p.Overall)}"));
+
+    private string Area() => $"{X(0)},{H - Pad} {Line()} {X(Points.Count - 1)},{H - Pad}";
+}

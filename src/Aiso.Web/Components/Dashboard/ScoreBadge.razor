@@ -1,0 +1,25 @@
+@* Coloured score pill: red below half the threshold, amber below threshold, green otherwise. *@
+<span class="score @Css" title="@Title">
+    @if (Value is { } v)
+    {
+        <CountUp Value="v" />
+    }
+    else
+    {
+        <text>—</text>
+    }
+</span>
+
+@code {
+    [Parameter] public decimal? Value { get; set; }
+    [Parameter] public int Threshold { get; set; } = 60;
+    [Parameter] public string? Title { get; set; }
+
+    private string Css => Value switch
+    {
+        null => "score-none",
+        var v when v < Threshold / 2m => "score-bad",
+        var v when v < Threshold => "score-warn",
+        _ => "score-good",
+    };
+}

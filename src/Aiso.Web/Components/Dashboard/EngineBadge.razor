@@ -1,0 +1,7 @@
+@* Engine identity: a fixed colour per engine, always next to its name (never colour alone). *@
+<span class="engine-badge @EngineStyle.Css(Key)"><span class="engine-dot" aria-hidden="true"></span>@Name</span>
+
+@code {
+    [Parameter, EditorRequired] public string Key { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Name { get; set; } = string.Empty;
+}
