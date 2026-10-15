@@ -19,7 +19,7 @@
     @foreach (var tab in VisibleTabs())
     {
         <button type="button" role="tab" class="tab @(tab.Key == _active ? "active" : null)"
-                aria-selected="@(tab.Key == _active)" @onclick="() => _active = tab.Key">
+                aria-selected="@(tab.Key == _active)" data-tip="@tab.Tip" @onclick="() => _active = tab.Key">
             <Icon Name="@tab.Key" /> @tab.Label
         </button>
     }
@@ -49,20 +49,20 @@
     private bool _canEdit;
     private bool _isAdmin;
 
-    private static readonly (string Key, string Label, string Policy)[] Tabs =
+    private static readonly (string Key, string Label, string Policy, string Tip)[] Tabs =
     [
-        ("summary", "Summary", AisoPolicies.CanView),
-        ("suggestions", "Suggestions", AisoPolicies.CanView),
-        ("answers", "Answers", AisoPolicies.CanView),
-        ("analytics", "Advanced Analytics", AisoPolicies.CanView),
-        ("prompts", "Test Prompts", AisoPolicies.CanEdit),
-        ("reports", "Reports", AisoPolicies.CanView),
-        ("engines", "AI Engines", AisoPolicies.Admin),
-        ("security", "Security Mappings", AisoPolicies.Admin),
-        ("settings", "System Settings", AisoPolicies.Admin),
+        ("summary", "Summary", AisoPolicies.CanView, "Each channel's latest score, how often each AI engine shows the brand, and which banks the engines name."),
+        ("suggestions", "Suggestions", AisoPolicies.CanView, "What to change to be named and cited more often, who owns it, ready-to-paste fixes, and whether the next audits confirm it."),
+        ("answers", "Answers", AisoPolicies.CanView, "The answers the AI engines gave to your test questions, with the sources they cited."),
+        ("analytics", "Advanced Analytics", AisoPolicies.CanView, "Trends over time, visibility per engine and language, the most cited domains and every on-page check."),
+        ("prompts", "Test Prompts", AisoPolicies.CanEdit, "The customer questions asked to every AI engine on each audit, per channel and language."),
+        ("reports", "Reports", AisoPolicies.CanView, "Remediation plans written after each audit, as Markdown checklists you can download."),
+        ("engines", "AI Engines", AisoPolicies.Admin, "Switch AI engines on or off, choose models, set API keys and limit paid web searches."),
+        ("security", "Security Mappings", AisoPolicies.Admin, "Which Active Directory groups get the Viewer, Analyst or Administrator role."),
+        ("settings", "System Settings", AisoPolicies.Admin, "Audit schedule, alert threshold and recipients, data retention and the search location."),
     ];
 
-    private IEnumerable<(string Key, string Label, string Policy)> VisibleTabs() =>
+    private IEnumerable<(string Key, string Label, string Policy, string Tip)> VisibleTabs() =>
         Tabs.Where(t => t.Policy == AisoPolicies.CanView
                         || (t.Policy == AisoPolicies.CanEdit && _canEdit)
                         || (t.Policy == AisoPolicies.Admin && _isAdmin));

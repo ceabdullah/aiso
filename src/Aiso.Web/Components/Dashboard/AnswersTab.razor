@@ -7,6 +7,7 @@
     {
         <button type="button" class="pill @(_visibility == key ? "on" : null)" aria-pressed="@(_visibility == key)" @onclick="() => SetVisibilityAsync(key)">@label</button>
     }
+    <Info Text="Shows the brand: the answer names TEB or cites one of its sites. Brand missing: neither, so a customer asking this would not hear of TEB. Failed: the engine returned an error." />
     <span class="filters-sep" aria-hidden="true"></span>
     <select class="input input-sm" aria-label="Engine" @bind="_engine" @bind:after="LoadAsync">
         <option value="">All engines</option>
@@ -69,15 +70,15 @@
                     <span class="spacer"></span>
                     @if (r.Error is not null)
                     {
-                        <span class="chip chip-bad"><Icon Name="alert" Size="12" /> Failed</span>
+                        <span class="chip chip-bad" data-tip="The engine returned an error instead of an answer; it's shown below."><Icon Name="alert" Size="12" /> Failed</span>
                     }
                     else if (r.IsVisible)
                     {
-                        <span class="chip chip-ok"><Icon Name="check" Size="12" /> @(r.MentionsBrand && r.CitesOwnedDomain ? "Named and cited" : r.MentionsBrand ? "Named" : "Cited")</span>
+                        <span class="chip chip-ok" data-tip="Named: the answer mentions the brand. Cited: it links to one of the brand's own sites. Both is best."><Icon Name="check" Size="12" /> @(r.MentionsBrand && r.CitesOwnedDomain ? "Named and cited" : r.MentionsBrand ? "Named" : "Cited")</span>
                     }
                     else
                     {
-                        <span class="chip chip-warn"><Icon Name="x" Size="12" /> Brand missing</span>
+                        <span class="chip chip-warn" data-tip="The answer neither names the brand nor cites its sites."><Icon Name="x" Size="12" /> Brand missing</span>
                     }
                 </div>
 
@@ -112,6 +113,7 @@
                 @if (r.Sources.Count > 0)
                 {
                     <div class="sources" aria-label="Sources the engine cited">
+                        <span class="muted small">Sources <Info Text="The pages this engine cited for the answer. Ticked ones are the brand's own sites." /></span>
                         @foreach (var s in r.Sources.DistinctBy(s => s.Host).Take(12))
                         {
                             <a class="source-chip @(s.IsOwned ? "owned" : null)" href="@s.Url" target="_blank" rel="noopener noreferrer" title="@s.Url">

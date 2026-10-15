@@ -5,7 +5,7 @@
 
 <div class="settings">
     <div class="setting">
-        <label for="retention">Data retention</label>
+        <label for="retention">Data retention <Info Text="How long audit records and the data/ snapshot folders are kept. Remediation plans are kept regardless." /></label>
         <div class="slider-row">
             <input id="retention" type="range" min="7" max="365" step="1" @bind="_retentionDays" @bind:event="oninput" />
             <span class="slider-value">@_retentionDays days</span>
@@ -14,7 +14,7 @@
     </div>
 
     <div class="setting">
-        <label for="cleanup">Maintenance sweep interval</label>
+        <label for="cleanup">Maintenance sweep interval <Info Text="How often the worker deletes data older than the retention period." /></label>
         <div class="slider-row">
             <input id="cleanup" type="range" min="1" max="30" step="1" @bind="_cleanupDays" @bind:event="oninput" />
             <span class="slider-value">every @_cleanupDays day(s)</span>
@@ -22,7 +22,7 @@
     </div>
 
     <div class="setting">
-        <label for="threshold">Visibility alert threshold</label>
+        <label for="threshold">Visibility alert threshold <Info Text="A channel scoring below this after an audit sends an alert email and counts in Channels below threshold on the Summary tab." /></label>
         <div class="slider-row">
             <input id="threshold" type="range" min="0" max="100" step="1" @bind="_threshold" @bind:event="oninput" />
             <span class="slider-value">@_threshold / 100</span>
@@ -31,7 +31,7 @@
     </div>
 
     <div class="setting">
-        <label for="interval">Audit pipeline interval</label>
+        <label for="interval">Audit pipeline interval <Info Text="How often a full audit runs on its own: crawl the sites, read the App Store, ask every engine every question, write the plans. Shorter intervals cost more with paid engines." /></label>
         <div class="slider-row">
             <input id="interval" type="range" min="1" max="168" step="1" @bind="_auditHours" @bind:event="oninput" />
             <span class="slider-value">every @_auditHours h</span>
@@ -39,12 +39,12 @@
     </div>
 
     <div class="setting">
-        <label for="recipients">Alert recipients</label>
+        <label for="recipients">Alert recipients <Info Text="Email addresses that get low-score alerts, separated by semicolons." /></label>
         <input id="recipients" class="input" @bind="_recipients" placeholder="audit-team@bank.local; ciso-office@bank.local" maxlength="2000" />
     </div>
 
     <div class="setting">
-        <label for="search-country">AI engine search location</label>
+        <label for="search-country">AI engine search location <Info Text="Where the engines search from, so their answers match what customers in that place see." /></label>
         <div class="location-grid">
             <input id="search-country" class="input" @bind="_searchCountry" placeholder="TR" maxlength="2" aria-label="Country code" title="Two-letter country code, e.g. TR" />
             <input class="input" @bind="_searchCity" placeholder="Istanbul" maxlength="100" aria-label="City" />
@@ -55,7 +55,7 @@
     </div>
 
     <div class="setting">
-        <label for="theme">Default theme for new users</label>
+        <label for="theme">Default theme for new users <Info Text="The theme for users who haven't picked one with the toggle in the header." /></label>
         <select id="theme" class="input input-sm" @bind="_theme">
             <option value="dark">Dark</option>
             <option value="light">Light</option>

@@ -9,7 +9,7 @@
 <div class="grid-reports">
     <div class="panel">
         <table class="table selectable">
-            <thead><tr><th>Generated (UTC)</th><th>Channel</th><th>Lang</th><th>Status</th><th class="num">Items</th></tr></thead>
+            <thead><tr><th>Generated (UTC)</th><th>Channel</th><th>Lang</th><th>Status <Info Text="Published: the plan was written and exported. Failed: the planner model gave no usable answer; the audit's scores still count." /></th><th class="num">Items <Info Text="The number of action items in the plan." /></th></tr></thead>
             <tbody>
                 @foreach (var r in _reports)
                 {

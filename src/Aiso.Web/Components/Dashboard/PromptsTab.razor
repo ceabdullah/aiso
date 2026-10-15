@@ -1,7 +1,7 @@
 @inject DashboardService Dashboard
 
 <div class="toolbar">
-    <label class="muted small" for="target">Channel</label>
+    <label class="muted small" for="target">Channel</label><Info Text="Each channel has its own test questions. On every audit, each active question is asked to every switched-on AI engine." />
     <select id="target" class="input input-sm" @bind="TargetId" @bind:after="LoadAsync">
         @foreach (var t in _targets)
         {
@@ -32,8 +32,8 @@
                         <option value="@lang">@lang</option>
                     }
                 </select>
-                <input class="input input-sm" @bind="p.Category" placeholder="category" maxlength="64" aria-label="Category" />
-                <label class="check"><input type="checkbox" @bind="p.IsActive" /> active</label>
+                <input class="input input-sm" @bind="p.Category" placeholder="category" maxlength="64" aria-label="Category" data-tip="A free label to group questions, e.g. loans or mobile app." />
+                <label class="check" data-tip="Only active questions are asked. Switch one off to keep it without asking it."><input type="checkbox" @bind="p.IsActive" /> active</label>
                 <button class="btn btn-danger btn-sm" @onclick="() => p.IsDeleted = true" title="Remove">✕</button>
             </div>
         </div>

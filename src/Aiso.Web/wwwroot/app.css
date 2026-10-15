@@ -365,6 +365,7 @@ h1:focus { outline: none; } /* FocusOnNavigate moves focus here for screen reade
 
 /* Engine rings */
 .engine-rings { display: flex; flex-wrap: wrap; gap: 14px; }
+.rings-head { display: flex; align-items: center; margin: 4px 0 6px; }
 .engine-ring { display: grid; justify-items: center; gap: 2px; width: 64px; position: relative; }
 .engine-ring svg { width: 52px; height: 52px; transform: rotate(-90deg); }
 .ring-track { fill: none; stroke: var(--surface-2); stroke-width: 4; }
@@ -465,3 +466,23 @@ h1:focus { outline: none; } /* FocusOnNavigate moves focus here for screen reade
 .hbar.own .hbar-label { font-weight: 700; }
 .hbar-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .hbar-fill { transition: none; } }
+
+/* Info tooltips (Info.razor + tooltip.js) */
+.info {
+    display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 6px; padding: 0;
+    border: 1px solid var(--border); border-radius: 50%; background: var(--surface-2); color: var(--muted);
+    font: italic 700 10px/1 Georgia, "Times New Roman", serif; cursor: help; vertical-align: middle;
+    text-transform: none; letter-spacing: 0; flex: none; position: relative;
+}
+.info:hover, .info:focus-visible { color: var(--accent); border-color: var(--accent); outline: none; }
+.info::after { content: ""; position: absolute; inset: -8px; } /* larger touch target */
+[data-tip]:not(.info) { cursor: help; }
+.tab[data-tip], .pill[data-tip] { cursor: pointer; }
+.tooltip {
+    position: fixed; z-index: 1000; max-width: min(320px, calc(100vw - 16px)); padding: 8px 10px;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text);
+    box-shadow: var(--shadow); font-size: 12.5px; line-height: 1.45; font-weight: 400; text-transform: none; letter-spacing: 0;
+    pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .12s ease-out;
+}
+.tooltip.on { opacity: 1; visibility: visible; }
+@media (prefers-reduced-motion: reduce) { .tooltip { transition: none; } }

@@ -1,7 +1,7 @@
 @* Share of voice (which banks the engines name) and the kinds of sources they cite, across channels. *@
 <div class="panel brand-panel">
     <div class="panel-head">
-        <h3>Brand insights</h3>
+        <h3>Brand insights <Info Text="Across the latest answers of every channel: which banks the AI engines name, and what kinds of sites they rely on. It shows who the engines recommend instead of TEB, and where to be present to change that." /></h3>
         <span class="muted small">
             @Insights.AnswersAnalyzed answers in the latest audits · @Insights.AsOfUtc.ToString("d MMM HH:mm", CultureInfo.InvariantCulture) UTC
         </span>
@@ -13,7 +13,7 @@
 
     <div class="grid-2 brand-grid">
         <section>
-            <h4>Share of voice <span class="muted small">· answers naming each bank</span></h4>
+            <h4>Share of voice <span class="muted small">· answers naming each bank</span><Info Text="The share of analysed answers that name each bank; TEB is highlighted. A competitor ahead of TEB is what the engines recommend first for these questions." /></h4>
             <ol class="hbars">
                 @foreach (var m in Insights.ShareOfVoice.Take(8))
                 {
@@ -27,7 +27,7 @@
             </ol>
         </section>
         <section>
-            <h4>Sources the engines cite <span class="muted small">· by kind</span></h4>
+            <h4>Sources the engines cite <span class="muted small">· by kind</span><Info Text="The sites the engines cited, grouped by kind: own sites, competitor banks, comparison sites, complaints and reviews, news, Wikipedia, app stores. Being present and accurate on the most cited kinds raises visibility. Needs an engine that searches the web." /></h4>
             @if (Insights.Sources.Count == 0)
             {
                 <p class="muted small">No cited sources: the answers analysed come from models that don't search the web.</p>

@@ -28,7 +28,7 @@ else
                 <header class="card-head">
                     <div>
                         <div class="card-title">@e.DisplayName</div>
-                        <div class="muted small">@KindLabel(e.Kind)</div>
+                        <div class="muted small">@KindLabel(e.Kind)@if (e.Kind == "OpenAiCompatibleChat") { <Info Text="Simulated: this model answers from memory without searching the web. Its answers are shown, but not counted in scores." /> }</div>
                     </div>
                     <label class="switch" title="@(e.IsEnabled ? "Switch off" : "Switch on")">
                         <input type="checkbox" role="switch" @bind="e.IsEnabled" aria-label="@($"{e.DisplayName} enabled")" />
@@ -53,7 +53,7 @@ else
 
                 <div class="engine-fields">
                     <div class="field">
-                        <span class="field-label">API key</span>
+                        <span class="field-label">API key <Info Text="Encrypted before it's stored, and never shown again: you can only replace or remove it. NVIDIA models share one key." /></span>
                         @if (e.SharedKeyFrom is { } owner && !e.HasUiKey)
                         {
                             <span class="key-status small">Uses the @owner key. Paste a key here only to give this model its own.</span>
@@ -93,7 +93,7 @@ else
                         </div>
                     </div>
                     <label class="field">
-                        <span class="field-label">Model</span>
+                        <span class="field-label">Model <Info Text="The vendor's model id. Leave it empty to use the default shown below." /></span>
                         <input class="input mono" @bind="e.ModelOverride" placeholder="@(e.DefaultModel ?? "model id")" maxlength="256"
                                aria-label="@($"{e.DisplayName} model")" />
                         <span class="muted small">Default: <span class="mono">@(e.DefaultModel ?? "—")</span></span>
@@ -101,7 +101,7 @@ else
                     @if (e.SupportsSearchLimit)
                     {
                         <label class="field">
-                            <span class="field-label">Web searches per answer</span>
+                            <span class="field-label">Web searches per answer <Info Text="The most web searches the engine may run for one answer. Each search is billed, so this caps the cost of an audit." /></span>
                             <input class="input input-sm" type="number" min="1" max="20" @bind="e.MaxSearchesOverride" placeholder="default"
                                    aria-label="@($"{e.DisplayName} searches per answer")" />
                             <span class="muted small">Each search is billed by the engine vendor, and its results add input tokens. Fewer searches cost less.</span>
@@ -110,10 +110,10 @@ else
                 </div>
 
                 <dl class="engine-stats">
-                    <div><dt>Answers (30d)</dt><dd>@e.Answers30d</dd></div>
-                    <div><dt>Errors (30d)</dt><dd class="@(e.Errors30d > 0 ? "warn-text" : null)">@e.Errors30d</dd></div>
-                    <div><dt>Avg. time</dt><dd>@FormatLatency(e)</dd></div>
-                    <div><dt>Est. answers / month</dt><dd>@e.EstimatedAnswersPerMonth</dd></div>
+                    <div><dt>Answers (30d) <Info Text="Answers this engine gave in the last 30 days." /></dt><dd>@e.Answers30d</dd></div>
+                    <div><dt>Errors (30d) <Info Text="Questions that failed in the last 30 days: timeouts, quota or key errors. See the Answers tab, filter Failed." /></dt><dd class="@(e.Errors30d > 0 ? "warn-text" : null)">@e.Errors30d</dd></div>
+                    <div><dt>Avg. time <Info Text="Average time for one answer." /></dt><dd>@FormatLatency(e)</dd></div>
+                    <div><dt>Est. answers / month <Info Text="Active test questions × audits per month at the current interval: a guide to this engine's monthly cost." /></dt><dd>@e.EstimatedAnswersPerMonth</dd></div>
                 </dl>
 
                 <footer class="card-foot muted small">

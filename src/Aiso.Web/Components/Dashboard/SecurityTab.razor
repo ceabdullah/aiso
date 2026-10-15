@@ -15,7 +15,7 @@
 
 <table class="table grid-edit">
     <thead>
-        <tr><th>AD group CN</th><th>Role</th><th>Enabled</th><th>Notes</th><th></th></tr>
+        <tr><th>AD group CN <Info Text="The common name of the Active Directory group, e.g. AISO-Analysts. Members get the role on the right." /></th><th>Role <Info Text="Viewer: read only. Analyst: also edits test prompts and starts audits. Administrator: also engines, security and settings." /></th><th>Enabled <Info Text="Switch a mapping off to stop granting its role without deleting it." /></th><th>Notes</th><th></th></tr>
     </thead>
     <tbody>
         @foreach (var row in _rows.Where(r => !r.IsDeleted))

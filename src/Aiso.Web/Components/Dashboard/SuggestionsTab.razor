@@ -33,11 +33,13 @@
                     @label <span class="pill-count">@CountFor(key)</span>
                 </button>
             }
+            <Info Text="To do: the latest audit still shows the problem. Waiting on engines: the fix is live on the page, but the AI answers haven't improved yet. Confirmed: the fix is live and the engines now show the brand more often." />
             <span class="filters-sep" aria-hidden="true"></span>
             @foreach (var team in Teams)
             {
                 <button type="button" class="pill @(_team == team ? "on" : null)" aria-pressed="@(_team == team)" @onclick="() => _team = team">@team</button>
             }
+            <Info Text="The team that can make the change. Web: site markup and pages. Digital Marketing: content, brand and PR. Mobile: the App Store listing and the app." />
             <select class="input input-sm" aria-label="Channel" @bind="_channelCode">
                 <option value="">All channels</option>
                 @foreach (var c in _feed.Channels)
@@ -84,16 +86,16 @@
                                 <span class="chip chip-new">Updated</span>
                             }
                             <span class="spacer"></span>
-                            <span class="chip @StatusChip(s.Status)">@StatusLabel(s.Status)</span>
+                            <span class="chip @StatusChip(s.Status)" data-tip="@StatusTip(s.Status)">@StatusLabel(s.Status)</span>
                         </div>
 
                         <h3 class="post-title">@s.Title</h3>
                         <p class="post-text">@s.Detail</p>
 
                         <div class="post-tags">
-                            <span class="tag prio-@s.Priority.ToString().ToLowerInvariant()">@s.Priority</span>
-                            <span class="tag">@s.Owner</span>
-                            <span class="tag">@s.Category</span>
+                            <span class="tag prio-@s.Priority.ToString().ToLowerInvariant()" data-tip="@PriorityTip(s.Priority)">@s.Priority</span>
+                            <span class="tag" data-tip="The team that owns this change.">@s.Owner</span>
+                            <span class="tag" data-tip="The kind of change: content, structured data, technical, app store or brand entity.">@s.Category</span>
                             @foreach (var e in s.Engines)
                             {
                                 <EngineBadge Key="@e.ToLowerInvariant()" Name="@e" />
@@ -101,7 +103,7 @@
                         </div>
 
                         <p class="post-status small"><span aria-hidden="true">@StatusIcon(s.Status)</span> @s.StatusDetail</p>
-                        <p class="post-evidence muted small mono">@s.Evidence</p>
+                        <p class="post-evidence muted small mono" data-tip="What the latest audit measured that led to this suggestion.">@s.Evidence</p>
 
                         @if (s.EngineTips.Count > 0)
                         {
@@ -157,7 +159,7 @@
 
     <aside class="feed-side">
         <div class="panel">
-            <h3>Channels</h3>
+            <h3>Channels <Info Text="Open and confirmed suggestions per channel. Click a channel to show only its suggestions; click it again to show all." /></h3>
             <ul class="side-list">
                 @foreach (var c in _feed.Channels)
                 {
@@ -178,7 +180,7 @@
             </ul>
         </div>
         <div class="panel">
-            <h3>How a fix is confirmed</h3>
+            <h3>How a fix is confirmed <Info Text="A suggestion's status comes from later audits, not from anyone ticking it off: the page is re-read, and the engines are asked the same questions again." /></h3>
             <ol class="small steps">
                 <li><strong>Apply</strong> the kit in the owning system: web CMS, robots.txt, App Store Connect or the app.</li>
                 <li><strong>Live:</strong> the next audit re-reads the public page and sees the change.</li>
@@ -324,6 +326,21 @@
         SuggestionStatus.ToDo => "todo",
         SuggestionStatus.LiveAwaitingEngines => "live",
         _ => "confirmed",
+    };
+
+    private static string StatusTip(SuggestionStatus s) => s switch
+    {
+        SuggestionStatus.ToDo => "The latest audit still shows the problem.",
+        SuggestionStatus.LiveAwaitingEngines => "The change is live on the page, but the AI answers haven't improved since. Engines re-crawl on their own schedule: days to weeks.",
+        _ => "The change is live and the AI engines show the brand more often since.",
+    };
+
+    private static string PriorityTip(SuggestionPriority p) => p switch
+    {
+        SuggestionPriority.Critical => "Critical: blocks AI engines from reading or naming the brand. Fix first.",
+        SuggestionPriority.High => "High: a large gain in visibility for the effort.",
+        SuggestionPriority.Medium => "Medium: a worthwhile improvement.",
+        _ => "Low: polish, once the rest is done.",
     };
 
     private static string StatusLabel(SuggestionStatus s) => s switch

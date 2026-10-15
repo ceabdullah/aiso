@@ -1,7 +1,7 @@
 @inject DashboardService Dashboard
 
 <div class="toolbar">
-    <label class="muted small" for="range">Window</label>
+    <label class="muted small" for="range">Window</label><Info Text="The period every chart and table on this tab covers." />
     <select id="range" class="input input-sm" @bind="Days" @bind:after="LoadAsync">
         <option value="7">7 days</option>
         <option value="30">30 days</option>
@@ -17,7 +17,7 @@
 }
 
 <div class="panel">
-    <h3>Overall score trend</h3>
+    <h3>Overall score trend <Info Text="Each channel's overall AISO score (0–100) per audit: 40% on-page structure and 60% AI answer visibility." /></h3>
     @if (_data.Trends.Count == 0)
     {
         <p class="muted">No audits in this window.</p>
@@ -29,7 +29,7 @@
 </div>
 
 <div class="panel">
-    <h3>Visibility by AI engine <span class="muted small">(brand named or own site cited · own site cited)</span></h3>
+    <h3>Visibility by AI engine <span class="muted small">(brand named or own site cited · own site cited)</span><Info Text="For each channel and engine: the bar is the share of answers that name the brand or cite its site; below it, the share that cite its own site, and n, the number of answers. Being cited is stronger than being named: it sends the customer to TEB." /></h3>
     @if (_data.Engines.Count == 0)
     {
         <p class="muted">No answer-engine results in this window. Configure engine API keys for the worker.</p>
@@ -77,7 +77,7 @@
 </div>
 
 <div class="panel">
-    <h3>Sources AI engines cite <span class="muted small">(for your test prompts)</span></h3>
+    <h3>Sources AI engines cite <span class="muted small">(for your test prompts)</span><Info Text="The domains the engines linked to most when answering your test questions, and which engines cited them. Domains that aren't yours show where the engines get their information instead." /></h3>
     <table class="table">
         <thead><tr><th>Domain</th><th class="num">Citations</th><th>Cited by</th><th></th></tr></thead>
         <tbody>
@@ -100,7 +100,7 @@
 
 <div class="grid-2">
     <div class="panel">
-        <h3>AI answer visibility by language</h3>
+        <h3>AI answer visibility by language <Info Text="How many answers named the brand, per channel and question language. A gap between languages points to content missing in one of them." /></h3>
         <table class="table">
             <thead><tr><th>Channel</th><th>Lang</th><th class="num">Mentioned</th><th>Rate</th></tr></thead>
             <tbody>
@@ -122,7 +122,7 @@
     </div>
 
     <div class="panel">
-        <h3>Recent audits</h3>
+        <h3>Recent audits <Info Text="The latest audit of each channel: status, overall score and how long it took (ms). Hover a row to see an error. Partially succeeded means some engine answers failed." /></h3>
         <table class="table">
             <thead><tr><th>When (UTC)</th><th>Channel</th><th>Status</th><th class="num">Score</th><th class="num">ms</th></tr></thead>
             <tbody>
@@ -142,7 +142,7 @@
 </div>
 
 <div class="panel">
-    <h3>On-page signal matrix <span class="muted small">(latest audit with page data, per channel)</span></h3>
+    <h3>On-page signal matrix <span class="muted small">(latest audit with page data, per channel)</span><Info Text="Every weighted on-page check, per channel: ✓ passed, ✗ failed, · not checked. Hover a cell for details and its weight. Failed checks with a high weight cost the most score." /></h3>
     <div class="table-scroll">
         <table class="table matrix">
             <thead>
