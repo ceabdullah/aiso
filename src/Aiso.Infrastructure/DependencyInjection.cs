@@ -1,3 +1,5 @@
+using Aiso.Infrastructure.Recommendations;
+using Aiso.Infrastructure.AppStore;
 using Aiso.Infrastructure.Engines;
 using Aiso.Infrastructure.Llm;
 using Aiso.Infrastructure.Notifications;
@@ -58,6 +60,14 @@ public static class DependencyInjection
                 o.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(90);
                 o.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(60);
             });
+
+        // Per-run robots.txt cache, so transient: each audit sees a fresh robots.txt.
+        builder.Services.AddTransient<SiteCrawler>();
+        builder.Services.AddOptions<CompetitorOptions>().Bind(config.GetSection(CompetitorOptions.SectionName));
+        builder.Services.AddOptions<AppStoreOptions>().Bind(config.GetSection(AppStoreOptions.SectionName));
+        builder.Services.AddHttpClient(AppStoreClient.HttpClientName, http => http.Timeout = TimeSpan.FromSeconds(30))
+            .AddStandardResilienceHandler();
+        builder.Services.AddSingleton<AppStoreClient>();
 
         builder.Services.AddOptions<AnswerEngineOptions>().Bind(config.GetSection(AnswerEngineOptions.SectionName));
         builder.Services.AddHttpClient(JsonEngineClientBase.HttpClientName, http => http.Timeout = Timeout.InfiniteTimeSpan)

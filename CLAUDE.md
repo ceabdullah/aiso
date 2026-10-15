@@ -17,8 +17,15 @@ run folder and one target. Do exactly this:
    `citations[]` lists the sources the engine used: competitor or third-party pages cited instead of
    `ownedDomains` show what content the engines trust. Work out what the brand must publish to be the
    natural, cited answer, and note when one engine lags the others.
-3. Optionally compare with earlier `data/*/<target>.*.json` runs to note regressions.
-4. Reply with **only** the JSON object below. No Markdown fences, no commentary.
+3. When present, also read `data/<run>/<target>.site.json` (crawl of the brand's own site: `checks[]` gives how
+   many pages pass each signal), `data/<run>/<target>.competitors.json` (pages the engines cited instead of the
+   brand, checked with the same signals: name what they have that the brand lacks) and
+   `data/<run>/<target>.app.json` (public App Store rating, reviews, last update and peer apps).
+   `data/<run>/<target>.brand.json` gives the share of voice (which banks the engines named) and the kinds of
+   sources they cited. A target with channel type `Brand` has no website of its own: assess how the engines portray
+   the bank and recommend brand-entity, PR, content and reputation actions.
+4. Optionally compare with earlier `data/*/<target>.*.json` runs to note regressions.
+5. Reply with **only** the JSON object below. No Markdown fences, no commentary.
 
 ```json
 {"summary":"2-4 sentences","items":[{"title":"Imperative action","detail":"Why + how, max 3 sentences","priority":"critical|high|medium|low","category":"structured-data|content|technical|app-store|brand-entity","owner":"Web | Digital Marketing | Mobile | SEO"}]}
@@ -40,7 +47,7 @@ run folder and one target. Do exactly this:
 
 | Path | Owner | Contents |
 |---|---|---|
-| `data/<yyyyMMdd-HHmmss>_<id>/` | Worker | `*.scrape.json`, `*.prompts.json`, `run-manifest.json` (purged after `DataRetentionDays`) |
+| `data/<yyyyMMdd-HHmmss>_<id>/` | Worker | `*.scrape.json`, `*.prompts.json`, `*.site.json`, `*.competitors.json`, `*.app.json`, `*.brand.json`, `run-manifest.json` (purged after `DataRetentionDays`) |
 | `reports/` | Worker | `<target>-<lang>-<timestamp>_AISO_remediation_plan.md` |
 | `src/`, `tests/` | Developers | .NET 10 / Aspire source of the platform itself |
 

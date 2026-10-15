@@ -76,7 +76,9 @@ public sealed class DashboardService(
             var scored = engines.Where(e => !e.Simulated).ToList();
             var answers = scored.Sum(e => e.Evaluated);
             decimal? visibility = answers == 0 ? null : Math.Round(100m * scored.Sum(e => e.Visible) / answers, 2);
-            decimal? overall = latest is null ? null : AisoScore.Overall(latest.OnPageScore, visibility);
+            decimal? overall = latest is null ? null
+                : t.ChannelKind == TargetChannelKind.Brand ? visibility ?? latest.OverallScore // brand: answers only, no page
+                : AisoScore.Overall(latest.OnPageScore, visibility);
             summaries.Add(new TargetSummary(t.Id, t.Code, t.DisplayName, t.BaseUrl, t.ChannelKind,
                 overall, latest?.OnPageScore, visibility,
                 lastTwo.Count > 1 ? lastTwo[1].OverallScore : null, latest?.Status, latest?.CreatedAtUtc, t.Prompts, engines, trend));
@@ -267,6 +269,45 @@ public sealed class DashboardService(
     public async Task<RunState> GetRunStateAsync(CancellationToken ct = default) =>
         new(await IsRunRequestedAsync(ct),
             AuditRunStatus.TryParse(await settings.GetStringAsync(SettingKeys.AuditRunStatus, ct), DateTime.UtcNow));
+
+    /// <summary>
+    /// Share of voice and source mix over each channel's latest audit (last 30 days) that has a brand analysis,
+    /// added up across channels.
+    /// </summary>
+    public async Task<BrandInsights?> GetBrandInsightsAsync(CancellationToken ct = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(ct);
+        var since = DateTime.UtcNow.AddDays(-30);
+        var logs = await db.LiveSearchAuditLogs.AsNoTracking()
+            .Where(a => a.CreatedAtUtc >= since && a.Status != AuditStatus.Failed && a.MetricsJson != null)
+            .OrderByDescending(a => a.CreatedAtUtc)
+            .Select(a => new { a.TargetProfileId, a.CreatedAtUtc, a.MetricsJson })
+            .ToListAsync(ct);
+
+        var latest = logs
+            .Select(l => (l.TargetProfileId, l.CreatedAtUtc, Brand: AuditMetricsDocument.TryParse(l.MetricsJson)?.Brand))
+            .Where(l => l.Brand is not null)
+            .GroupBy(l => l.TargetProfileId)
+            .Select(g => g.First())
+            .ToList();
+        if (latest.Count == 0)
+        {
+            return null;
+        }
+
+        var answers = latest.Sum(l => l.Brand!.AnswersAnalyzed);
+        var voice = latest.SelectMany(l => l.Brand!.ShareOfVoice)
+            .GroupBy(m => m.IsOwn ? "\u0000own" : m.Brand, StringComparer.Ordinal)
+            .Select(g => new BrandMention(g.First().IsOwn ? "TEB" : g.Key, g.Sum(m => m.Answers), g.First().IsOwn))
+            .OrderByDescending(m => m.Answers).ThenBy(m => m.IsOwn ? 0 : 1)
+            .ToList();
+        var sources = latest.SelectMany(l => l.Brand!.Sources)
+            .GroupBy(g => g.Category, StringComparer.Ordinal)
+            .Select(g => new SourceGroup(g.Key, g.Sum(x => x.Citations), g.SelectMany(x => x.TopHosts).Distinct(StringComparer.OrdinalIgnoreCase).Take(4).ToList()))
+            .OrderByDescending(g => g.Citations)
+            .ToList();
+        return new BrandInsights(answers, latest.All(l => l.Brand!.FromSimulatedOnly), voice, sources, latest.Max(l => l.CreatedAtUtc));
+    }
 
     /// <summary>How far back the suggestion feed looks to tell fixed problems from ones that never existed.</summary>
     public const int SuggestionHistoryDays = 90;

@@ -76,7 +76,10 @@
             </div>
 
             <dl class="metrics">
-                <dt>On-page structure</dt><dd><Bar Value="t.OnPageScore" /></dd>
+                @if (t.ChannelKind != TargetChannelKind.Brand)
+                {
+                    <dt>On-page structure</dt><dd><Bar Value="t.OnPageScore" /></dd>
+                }
                 <dt>AI answer visibility</dt><dd><Bar Value="t.PromptVisibilityScore" /></dd>
             </dl>
 
@@ -120,9 +123,15 @@
     <EngineTrendChart Series="_engineTrend" />
 </div>
 
+@if (_brand is not null)
+{
+    <BrandInsightsPanel Insights="_brand" />
+}
+
 @code {
     private DashboardSummary? _summary;
     private IReadOnlyList<EngineSeries> _engineTrend = [];
+    private BrandInsights? _brand;
     private bool _busy;
     private int Days { get; set; } = 30;
 
@@ -160,6 +169,7 @@
     private async Task LoadAsync()
     {
         _summary = await Dashboard.GetSummaryAsync();
+        _brand = await Dashboard.GetBrandInsightsAsync();
         await LoadTrendAsync();
     }
 
@@ -194,6 +204,7 @@
     {
         TargetChannelKind.MobileAppStore => "phone",
         TargetChannelKind.CoreWebPortal => "bank",
+        TargetChannelKind.Brand => "engines",
         _ => "globe",
     };
 
@@ -202,6 +213,7 @@
         TargetChannelKind.CoreWebPortal => "Web portal",
         TargetChannelKind.DigitalChannel => "Digital channel",
         TargetChannelKind.MobileAppStore => "iOS App Store",
+        TargetChannelKind.Brand => "Brand",
         _ => kind.ToString(),
     };
 

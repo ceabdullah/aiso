@@ -22,7 +22,11 @@ public sealed partial class NativeHtmlScraperService(
 {
     public const string HttpClientName = "aiso-scraper";
 
-    public async Task<ScrapeResult> ScrapeAsync(Uri url, TargetChannelKind kind, CancellationToken cancellationToken)
+    public async Task<ScrapeResult> ScrapeAsync(Uri url, TargetChannelKind kind, CancellationToken cancellationToken) =>
+        (await ScrapePageAsync(url, kind, cancellationToken)).Result;
+
+    /// <summary>Scrapes a page and also returns its links, for crawling a whole site.</summary>
+    public async Task<PageScrape> ScrapePageAsync(Uri url, TargetChannelKind kind, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(url);
         var stopwatch = Stopwatch.StartNew();
@@ -39,7 +43,7 @@ public sealed partial class NativeHtmlScraperService(
 
             if (!response.IsSuccessStatusCode)
             {
-                return Failed(url, status, $"HTTP {status} {response.ReasonPhrase}", stopwatch);
+                return new PageScrape(Failed(url, status, $"HTTP {status} {response.ReasonPhrase}", stopwatch), []);
             }
 
             var html = await ReadBoundedAsync(response.Content, options.Value.MaxResponseBytes, cancellationToken);
@@ -47,15 +51,53 @@ public sealed partial class NativeHtmlScraperService(
             var signals = Score(metrics, kind);
 
             logger.LogInformation("Scraped {Url} ({Status}) in {Elapsed} ms.", url, status, stopwatch.ElapsedMilliseconds);
-            return new ScrapeResult(url.ToString(), status, true, null, DateTime.UtcNow, stopwatch.ElapsedMilliseconds,
-                metrics, signals, ToScore(signals));
+            return new PageScrape(
+                new ScrapeResult(url.ToString(), status, true, null, DateTime.UtcNow, stopwatch.ElapsedMilliseconds, metrics, signals, ToScore(signals)),
+                ExtractLinks(html, response.RequestMessage?.RequestUri ?? url));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Scrape failed for {Url}.", url);
             var status = ex is HttpRequestException { StatusCode: { } code } ? (int)code : (int?)null;
-            return Failed(url, status, ex.Message, stopwatch);
+            return new PageScrape(Failed(url, status, ex.Message, stopwatch), []);
         }
+    }
+
+    /// <summary>Fetches a small text resource (robots.txt, sitemap.xml) with the crawler's identity; null when unavailable.</summary>
+    public async Task<string?> FetchTextAsync(Uri url, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.TryAddWithoutValidation("User-Agent", options.Value.UserAgent);
+            using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            return response.IsSuccessStatusCode ? await ReadBoundedAsync(response.Content, options.Value.MaxResponseBytes, cancellationToken) : null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            logger.LogInformation("Could not fetch {Url}: {Message}", url, ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>Absolute http(s) links of a page, without fragments. Static for unit testing.</summary>
+    public static IReadOnlyList<Uri> ExtractLinks(string html, Uri baseUri)
+    {
+        ArgumentNullException.ThrowIfNull(baseUri);
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html ?? string.Empty);
+        var links = new List<Uri>();
+        foreach (var a in doc.DocumentNode.SelectNodes("//a[@href]") ?? Enumerable.Empty<HtmlNode>())
+        {
+            var href = WebUtility.HtmlDecode(a.GetAttributeValue("href", string.Empty)).Trim();
+            if (href.Length > 0 && Uri.TryCreate(baseUri, href, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+            {
+                links.Add(new UriBuilder(uri) { Fragment = string.Empty }.Uri);
+            }
+        }
+
+        return links;
     }
 
     private static ScrapeResult Failed(Uri url, int? status, string error, Stopwatch sw) =>

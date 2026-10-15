@@ -85,7 +85,11 @@ public sealed class PipelineEndToEndTests : IDisposable
         var agent = new StubAgent("""{"summary":"Özet.","items":[{"title":"FAQPage ekleyin","priority":"high","category":"structured-data"}]}""");
         var alerts = new CapturingNotifications();
 
-        var pipeline = new AuditPipelineService(factory, scraper, probe, agent,
+        var crawler = new SiteCrawler(scraper, Options.Create(new ScraperOptions { CrawlDelayMs = 0, CrawlMaxPages = 3 }), NullLogger<SiteCrawler>.Instance);
+        var appStore = new Aiso.Infrastructure.AppStore.AppStoreClient(new StubHttpFactory(_ => throw new InvalidOperationException("no app channel")),
+            Options.Create(new Aiso.Infrastructure.AppStore.AppStoreOptions()), NullLogger<Aiso.Infrastructure.AppStore.AppStoreClient>.Instance);
+
+        var pipeline = new AuditPipelineService(factory, scraper, crawler, appStore, Options.Create(new Aiso.Infrastructure.Recommendations.CompetitorOptions()), probe, agent,
             new AisoMarkdownExporter(workspace, NullLogger<AisoMarkdownExporter>.Instance), alerts,
             new Aiso.Infrastructure.Settings.SystemSettingsService(factory),
             workspace, NullLogger<AuditPipelineService>.Instance);

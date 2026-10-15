@@ -50,7 +50,16 @@ public static class ApplyKit
         }
 
         var lang = ctx.LanguageCode.Split('-')[0];
-        return suggestion.Key["signal:".Length..] switch
+        // "signal:X" (the channel's page) and "site:X" (across the crawled site) share the same fix for check X;
+        // App Store keys map onto the closest storefront kit.
+        var colon = suggestion.Key.IndexOf(':', StringComparison.Ordinal);
+        var check = suggestion.Key[(colon + 1)..] switch
+        {
+            "rating-gap" or "rating-count" or "recent-reviews" => "StorefrontRating",
+            "link" => "StorefrontStructuredData",
+            var other => other,
+        };
+        return check switch
         {
             "OrganizationSchema" => [ScriptKit("Organization JSON-LD", "Web CMS · site-wide head", "organization.jsonld.html", OrganizationJsonLd(ctx),
                 "Add once to the site template's <head>. Fill in the logo URL and the sameAs profiles, then validate with validator.schema.org.")],

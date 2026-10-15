@@ -70,6 +70,6 @@ public static class OwnedDomainMatcher
         return h.StartsWith("www.", StringComparison.Ordinal) ? h[4..] : h;
     }
 
-    private static bool IsRedirector(string host) =>
+    public static bool IsRedirector(string host) =>
         host.EndsWith("vertexaisearch.cloud.google.com", StringComparison.OrdinalIgnoreCase);
 }

@@ -4,9 +4,11 @@ using System.Globalization;
 using System.Text.Json;
 using Aiso.Domain.Entities;
 using Aiso.Domain.Enums;
+using Aiso.Infrastructure.AppStore;
 using Aiso.Infrastructure.Engines;
 using Aiso.Infrastructure.Notifications;
 using Aiso.Infrastructure.Persistence;
+using Aiso.Infrastructure.Recommendations;
 using Aiso.Infrastructure.Reporting;
 using Aiso.Infrastructure.Runtime;
 using Aiso.Infrastructure.Scraping;
@@ -27,6 +29,9 @@ public sealed record PipelineRunSummary(Guid RunId, string RunFolder, int Target
 public sealed class AuditPipelineService(
     IDbContextFactory<AisoDbContext> contextFactory,
     NativeHtmlScraperService scraper,
+    SiteCrawler crawler,
+    AppStoreClient appStore,
+    IOptions<CompetitorOptions> competitorOptions,
     AnswerEngineProbe probe,
     IClaudeCliOrchestrator claude,
     AisoMarkdownExporter exporter,
@@ -96,7 +101,7 @@ public sealed class AuditPipelineService(
             var plan = log.Status == AuditStatus.Failed
                 ? null
                 : await GeneratePlanAsync(db, target, log, ws.ToRelative(runFolder),
-                    [Path.Combine(runFolder, $"{target.Code}.scrape.json"), Path.Combine(runFolder, $"{target.Code}.prompts.json")], ct);
+                    DataFiles(runFolder, target.Code), ct);
             if (plan?.Status == RemediationStatus.Published)
             {
                 plansExported++;
@@ -135,10 +140,38 @@ public sealed class AuditPipelineService(
 
         try
         {
-            await progress.StageAsync("Reading the page", target.DisplayName, ct);
-            var scrape = await scraper.ScrapeAsync(new Uri(target.BaseUrl), target.ChannelKind, ct);
+            // A brand channel has no single page: it is measured by the engines' answers alone.
+            var isBrand = target.ChannelKind == TargetChannelKind.Brand;
+            PageScrape home;
+            if (isBrand)
+            {
+                home = new PageScrape(new ScrapeResult(target.BaseUrl, null, true, null, DateTime.UtcNow, 0, null, [], 0m), []);
+            }
+            else
+            {
+                await progress.StageAsync("Reading the page", target.DisplayName, ct);
+                home = await scraper.ScrapePageAsync(new Uri(target.BaseUrl), target.ChannelKind, ct);
+            }
+
+            var scrape = home.Result;
             var scrapePath = Path.Combine(runFolder, $"{target.Code}.scrape.json");
             await WriteJsonAsync(scrapePath, new { target = Describe(target), scrape }, ct);
+
+            // Web channels: crawl the rest of the site. App channels: Apple's public listing, reviews and peer apps.
+            SiteCrawl? site = null;
+            AppStoreData? app = null;
+            if (target.ChannelKind == TargetChannelKind.MobileAppStore)
+            {
+                await progress.StageAsync("Reading App Store data", target.DisplayName, ct);
+                app = await appStore.GetAsync(target.BaseUrl, ct);
+                await WriteJsonAsync(Path.Combine(runFolder, $"{target.Code}.app.json"), new { target = Describe(target), app }, ct);
+            }
+            else if (scrape.Success && !isBrand)
+            {
+                await progress.StageAsync("Crawling the site", target.DisplayName, ct);
+                site = await crawler.CrawlAsync(new Uri(target.BaseUrl), home, target.ChannelKind, ct);
+                await WriteJsonAsync(Path.Combine(runFolder, $"{target.Code}.site.json"), new { target = Describe(target), site }, ct);
+            }
 
             IReadOnlyList<EngineProbeOutcome> probes = [];
             if (target.TestPrompts.Count > 0)
@@ -161,6 +194,24 @@ public sealed class AuditPipelineService(
                     p.MentionsBrand, p.CitesOwnedDomain, p.MatchedKeywords, citations = p.Citations, p.Error,
                 }),
             }, ct);
+
+            // Which banks the engines name, and which kinds of sources they rely on.
+            var keywords = target.GetBrandKeywords();
+            var brand = BrandAnalyzer.Analyze(probes, keywords.Count > 0 ? keywords[0] : target.DisplayName,
+                target.GetOwnedDomains(), competitorOptions.Value.Effective);
+            if (brand is not null)
+            {
+                await WriteJsonAsync(Path.Combine(runFolder, $"{target.Code}.brand.json"), new { target = Describe(target), brand }, ct);
+            }
+
+            // Pages the engines cited instead of the brand, checked like the brand's own page (web-searching engines only).
+            IReadOnlyList<CompetitorPage> competitors = [];
+            if (probes.Any(p => p.SearchesWeb && p.Citations.Count > p.OwnedCitations.Count))
+            {
+                await progress.StageAsync("Reading pages the engines cited", target.DisplayName, ct);
+                competitors = await crawler.AnalyzeCitedPagesAsync(probes.Where(p => p.SearchesWeb), target.GetOwnedDomains(), ct);
+                await WriteJsonAsync(Path.Combine(runFolder, $"{target.Code}.competitors.json"), new { target = Describe(target), competitors }, ct);
+            }
 
             foreach (var p in probes)
             {
@@ -190,9 +241,11 @@ public sealed class AuditPipelineService(
             log.PromptsMentioningBrand = evaluated.Count(p => p.MentionsBrand);
             log.PromptsCitingDomain = evaluated.Count(p => p.CitesOwnedDomain);
             log.PromptVisibilityScore = evaluated.Count == 0 ? 0 : Math.Round(100m * evaluated.Count(p => p.IsVisible) / evaluated.Count, 2);
-            log.OverallScore = AisoScore.Overall(log.OnPageScore, evaluated.Count == 0 ? null : log.PromptVisibilityScore);
+            log.OverallScore = isBrand
+                ? log.PromptVisibilityScore
+                : AisoScore.Overall(log.OnPageScore, evaluated.Count == 0 ? null : log.PromptVisibilityScore);
             log.SnapshotPath = workspace.Value.ToRelative(scrapePath);
-            log.MetricsJson = JsonSerializer.Serialize(new AuditMetricsDocument(scrape.Metrics, scrape.Signals), SnapshotJson);
+            log.MetricsJson = JsonSerializer.Serialize(new AuditMetricsDocument(scrape.Metrics, scrape.Signals, site, competitors, app, brand), SnapshotJson);
             log.ErrorMessage = Truncate(scrape.Error ?? (failed > 0 ? $"{failed} engine answer(s) failed." : null));
             log.Status = !scrape.Success && probes.All(p => !p.Succeeded) ? AuditStatus.Failed
                 : !scrape.Success || failed > 0 ? AuditStatus.PartiallySucceeded
@@ -269,6 +322,15 @@ public sealed class AuditPipelineService(
 
         return plan;
     }
+
+    private static readonly string[] DataFileKinds = ["scrape", "prompts", "brand", "site", "competitors", "app"];
+
+    /// <summary>The run's data files for a channel that exist (site, app and competitor files are optional).</summary>
+    private static List<string> DataFiles(string runFolder, string code) =>
+        DataFileKinds
+            .Select(kind => Path.Combine(runFolder, $"{code}.{kind}.json"))
+            .Where(File.Exists)
+            .ToList();
 
     private static object Describe(TargetProfile t) => new
     {

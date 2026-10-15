@@ -1,0 +1,60 @@
+@* Share of voice (which banks the engines name) and the kinds of sources they cite, across channels. *@
+<div class="panel brand-panel">
+    <div class="panel-head">
+        <h3>Brand insights</h3>
+        <span class="muted small">
+            @Insights.AnswersAnalyzed answers in the latest audits · @Insights.AsOfUtc.ToString("d MMM HH:mm", CultureInfo.InvariantCulture) UTC
+        </span>
+    </div>
+    @if (Insights.FromSimulatedOnly)
+    {
+        <p class="alert small sim-note">From simulated models without web search: indicative of what the models remember, not of live AI search results.</p>
+    }
+
+    <div class="grid-2 brand-grid">
+        <section>
+            <h4>Share of voice <span class="muted small">· answers naming each bank</span></h4>
+            <ol class="hbars">
+                @foreach (var m in Insights.ShareOfVoice.Take(8))
+                {
+                    var pct = Pct(m.Answers);
+                    <li class="hbar @(m.IsOwn ? "own" : null)" title="@($"{m.Brand}: named in {m.Answers} of {Insights.AnswersAnalyzed} answers")">
+                        <span class="hbar-label">@m.Brand</span>
+                        <span class="hbar-track"><span class="hbar-fill" style="@Width(pct)"></span></span>
+                        <span class="hbar-value">@pct.ToString("0", CultureInfo.InvariantCulture)%</span>
+                    </li>
+                }
+            </ol>
+        </section>
+        <section>
+            <h4>Sources the engines cite <span class="muted small">· by kind</span></h4>
+            @if (Insights.Sources.Count == 0)
+            {
+                <p class="muted small">No cited sources: the answers analysed come from models that don't search the web.</p>
+            }
+            else
+            {
+                var total = Insights.Sources.Sum(g => g.Citations);
+                <ol class="hbars">
+                    @foreach (var g in Insights.Sources.Take(8))
+                    {
+                        var pct = total == 0 ? 0 : 100m * g.Citations / total;
+                        <li class="hbar @(g.Category == BrandAnalyzer.Owned ? "own" : null)" title="@string.Join(", ", g.TopHosts)">
+                            <span class="hbar-label">@g.Category<span class="hbar-sub">@string.Join(", ", g.TopHosts.Take(2))</span></span>
+                            <span class="hbar-track"><span class="hbar-fill" style="@Width(pct)"></span></span>
+                            <span class="hbar-value">@g.Citations</span>
+                        </li>
+                    }
+                </ol>
+            }
+        </section>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public BrandInsights Insights { get; set; } = default!;
+
+    private decimal Pct(int answers) => Insights.AnswersAnalyzed == 0 ? 0 : 100m * answers / Insights.AnswersAnalyzed;
+
+    private static string Width(decimal pct) => string.Create(CultureInfo.InvariantCulture, $"width:{Math.Clamp(pct, 0, 100):0.#}%");
+}

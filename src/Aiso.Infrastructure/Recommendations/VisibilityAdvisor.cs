@@ -54,7 +54,7 @@ public sealed record Suggestion(
     public string Owner => Category switch
     {
         "app-store" => "Mobile",
-        "content" => "Digital Marketing",
+        "content" or "brand-entity" => "Digital Marketing",
         _ => "Web",
     };
 }
@@ -138,7 +138,8 @@ public static class VisibilityAdvisor
         }
 
         var site = ownedDomains.Count > 0 ? ownedDomains[0] : "your site";
-        return [.. SignalSuggestions(audits), .. PromptSuggestions(audits, site)];
+        var latestPage = audits.LastOrDefault(a => a.Page is not null)?.Page;
+        return [.. SignalSuggestions(audits), .. SiteSuggestions(latestPage), .. AppSuggestions(latestPage), .. BrandSuggestions(latestPage), .. PromptSuggestions(audits, site, latestPage)];
     }
 
     private static IEnumerable<Suggestion> SignalSuggestions(List<AuditSnapshot> audits)
@@ -164,8 +165,12 @@ public static class VisibilityAdvisor
 
             if (!signal.Passed)
             {
-                yield return new Suggestion($"signal:{signal.Name}", advice.Title, advice.Detail, priority, advice.Category, [],
-                    evidence, SuggestionStatus.ToDo, "Still missing in the latest audit.", []);
+                // Pages the engines cited instead of the brand that pass this check make the gap concrete (and more urgent).
+                var page = withPage[^1].Page!;
+                var (comparison, competitorsPass) = CompetitorComparison(page, signal.Name);
+                yield return new Suggestion($"signal:{signal.Name}", advice.Title, advice.Detail + comparison,
+                    competitorsPass ? Raise(priority) : priority, advice.Category, [],
+                    evidence + SiteCoverage(page, signal.Name), SuggestionStatus.ToDo, "Still missing in the latest audit.", []);
                 continue;
             }
 
@@ -185,6 +190,197 @@ public static class VisibilityAdvisor
         }
     }
 
+    /// <summary>" 4 of 5 pages the engines cited instead of yours pass this check (a.com, b.com)." and whether most do.</summary>
+    private static (string Text, bool MostPass) CompetitorComparison(AuditMetricsDocument page, string signal)
+    {
+        var checkedPages = (page.Competitors ?? []).Where(c => c.Fetched && c.Signals.Any(s => s.Name == signal)).ToList();
+        if (checkedPages.Count == 0)
+        {
+            return (string.Empty, false);
+        }
+
+        var passing = checkedPages.Where(c => c.Signals.Any(s => s.Name == signal && s.Passed)).ToList();
+        if (passing.Count == 0)
+        {
+            return (string.Empty, false);
+        }
+
+        var hosts = string.Join(", ", passing.Select(c => c.Host).Distinct().Take(3));
+        return (string.Create(CultureInfo.InvariantCulture,
+            $" {passing.Count} of {checkedPages.Count} pages the AI engines cited instead of yours pass this check ({hosts})."),
+            passing.Count * 2 >= checkedPages.Count);
+    }
+
+    /// <summary>" Across the site: 3 of 25 pages pass." when the site was crawled.</summary>
+    private static string SiteCoverage(AuditMetricsDocument page, string signal) =>
+        page.Site?.Checks.FirstOrDefault(c => c.Signal == signal) is { Total: > 1 } check
+            ? string.Create(CultureInfo.InvariantCulture, $" · across the site: {check.Passed} of {check.Total} pages pass")
+            : string.Empty;
+
+    private static SuggestionPriority Raise(SuggestionPriority p) => p == SuggestionPriority.Critical ? p : p - 1;
+
+    // Site-wide gaps the home page doesn't show: a check most crawled pages fail, and broken pages.
+    private static IEnumerable<Suggestion> SiteSuggestions(AuditMetricsDocument? page)
+    {
+        if (page?.Site is not { PagesCrawled: > 1 } site)
+        {
+            yield break;
+        }
+
+        if (site.BrokenPages > 0)
+        {
+            var broken = site.Pages.Where(p => p.HttpStatus is null or >= 400).Take(3).Select(p => $"{p.Url} ({p.HttpStatus?.ToString(CultureInfo.InvariantCulture) ?? "no answer"})");
+            yield return new Suggestion("site:broken", string.Create(CultureInfo.InvariantCulture, $"Fix {site.BrokenPages} broken page(s) linked from the site"),
+                "Crawlers that follow these links hit errors; engines don't cite pages they can't load, and broken links lower trust in the site.",
+                SuggestionPriority.High, "technical", [], string.Join(" · ", broken), SuggestionStatus.ToDo, "Found in the latest crawl.", []);
+        }
+
+        var homeSignals = page.Signals.ToDictionary(s => s.Name, s => s.Passed, StringComparer.Ordinal);
+        foreach (var check in site.Checks.Where(c => c.Total >= 3 && c.PassRate < 70m))
+        {
+            // The home page failing this check is already a suggestion of its own.
+            if (!homeSignals.GetValueOrDefault(check.Signal, true) || !SignalAdvices.TryGetValue(check.Signal, out var advice))
+            {
+                continue;
+            }
+
+            yield return new Suggestion($"site:{check.Signal}", $"Across the site: {LowerFirst(advice.Title)}", advice.Detail,
+                check.PassRate < 30m ? SuggestionPriority.High : SuggestionPriority.Medium, advice.Category, [],
+                string.Create(CultureInfo.InvariantCulture, $"{check.Signal}: {check.Passed} of {check.Total} crawled pages pass. Failing: {string.Join(", ", check.FailingExamples)}"),
+                SuggestionStatus.ToDo, "Found in the latest crawl.", []);
+        }
+    }
+
+    // App Store listing compared with leading peer apps (public Apple data).
+    private static IEnumerable<Suggestion> AppSuggestions(AuditMetricsDocument? page)
+    {
+        if (page?.App is not { } data)
+        {
+            yield break;
+        }
+
+        if (data.App is not { } app)
+        {
+            yield return new Suggestion("app:link", "Fix the App Store link for this channel", data.Error ?? "The app could not be found.",
+                SuggestionPriority.Critical, "app-store", [], data.Error ?? string.Empty, SuggestionStatus.ToDo, "App data unavailable in the latest audit.", []);
+            yield break;
+        }
+
+        var peers = data.Peers.Where(p => p.Rating is not null && p.RatingCount is > 0).ToList();
+        var peerList = string.Join(", ", peers.Take(3).Select(p => string.Create(CultureInfo.InvariantCulture, $"{p.Name} {p.Rating:0.0} ({p.RatingCount:N0})")));
+
+        if (app.Rating is { } rating && peers.Count > 0 && rating < peers.Average(p => p.Rating!.Value) - 0.05m)
+        {
+            yield return new Suggestion("app:rating-gap", "Close the rating gap with leading banking apps",
+                string.Create(CultureInfo.InvariantCulture, $"{app.Name} is rated {rating:0.00}; the leading banking apps average {peers.Average(p => p.Rating!.Value):0.00}. AI engines quote store ratings when they compare banking apps."),
+                SuggestionPriority.Medium, "app-store", [], $"Peers: {peerList}", SuggestionStatus.ToDo, "From the latest App Store data.", []);
+        }
+
+        if (app.RatingCount is { } count && peers.Count > 0)
+        {
+            var median = peers.Select(p => p.RatingCount!.Value).Order().ElementAt(peers.Count / 2);
+            if (count * 2 < median)
+            {
+                yield return new Suggestion("app:rating-count", "Ask more satisfied customers to rate the app",
+                    string.Create(CultureInfo.InvariantCulture, $"{app.Name} has {count:N0} ratings; leading banking apps have around {median:N0}. More ratings make the score more credible to customers and to engines."),
+                    SuggestionPriority.Medium, "app-store", [], $"Peers: {peerList}", SuggestionStatus.ToDo, "From the latest App Store data.", []);
+            }
+        }
+
+        if (data.RecentAverage is { } recent && recent < 4.0m)
+        {
+            var complaints = string.Join(" · ", data.RecentReviews.Where(r => r.Rating <= 2).Take(3).Select(r => $"“{r.Title}”"));
+            yield return new Suggestion("app:recent-reviews", "Answer and fix what recent low ratings complain about",
+                string.Create(CultureInfo.InvariantCulture, $"The {data.RecentReviews.Count} most recent reviews average {recent:0.0}. Reply in App Store Connect and address the repeated issues in the next release."),
+                SuggestionPriority.High, "app-store", [], complaints, SuggestionStatus.ToDo, "From the latest App Store reviews.", []);
+        }
+
+        if (app.LastUpdatedUtc is { } updated && DateTime.UtcNow - updated > TimeSpan.FromDays(90))
+        {
+            yield return new Suggestion("app:freshness", "Ship and describe app updates more often",
+                $"The last update was on {Day(updated)}. Regular releases with clear release notes signal an actively maintained app.",
+                SuggestionPriority.Low, "app-store", [], $"Version {app.Version}", SuggestionStatus.ToDo, "From the latest App Store data.", []);
+        }
+
+        if (app.DescriptionLength < 1500)
+        {
+            yield return new Suggestion("app:description", "Expand the App Store description with what customers ask",
+                string.Create(CultureInfo.InvariantCulture, $"The description has {app.DescriptionLength} characters. Answer the common questions (fees, transfers, account opening) in plain sentences engines can quote."),
+                SuggestionPriority.Medium, "app-store", [], string.Empty, SuggestionStatus.ToDo, "From the latest App Store data.", []);
+        }
+    }
+
+    // "; those pages have: enpara.com (FAQPage, 1,240 words), …" from the fetched competitor pages.
+    private static string CitedPageFeatures(AuditMetricsDocument? page, List<string> hosts)
+    {
+        var described = hosts
+            .Select(h => (page?.Competitors ?? []).FirstOrDefault(c => c.Fetched && string.Equals(c.Host, h, StringComparison.OrdinalIgnoreCase)))
+            .OfType<CompetitorPage>()
+            .Select(c =>
+            {
+                var types = c.JsonLdTypes.Where(t => t is "FAQPage" or "HowTo" or "Product" or "FinancialProduct" or "BankOrCreditUnion" or "Organization" or "Table").Take(3);
+                return $"{c.Host} ({string.Join(", ", types.Append(c.WordCount.ToString("N0", CultureInfo.InvariantCulture) + " words"))})";
+            })
+            .ToList();
+        return described.Count == 0
+            ? "; see what those pages cover that yours doesn't."
+            : $"; those pages have: {string.Join("; ", described)}. Match their depth and structure.";
+    }
+
+    // Brand-level findings: banks named more often than the brand, and the kinds of sources shaping the answers.
+    private static IEnumerable<Suggestion> BrandSuggestions(AuditMetricsDocument? page)
+    {
+        if (page?.Brand is not { AnswersAnalyzed: > 0 } brand)
+        {
+            yield break;
+        }
+
+        var n = brand.AnswersAnalyzed;
+        var basis = brand.FromSimulatedOnly ? " (simulated models without web search; indicative only)" : string.Empty;
+        var own = brand.ShareOfVoice.FirstOrDefault(m => m.IsOwn);
+        var ahead = brand.ShareOfVoice.Where(m => !m.IsOwn && m.Answers > (own?.Answers ?? 0)).ToList();
+        if (own is not null && ahead.Count > 0)
+        {
+            var top = ahead[0];
+            yield return new Suggestion("brand:share-of-voice", $"Competitors are named more often than {own.Brand}",
+                string.Create(CultureInfo.InvariantCulture,
+                    $"{top.Brand} is named in {top.Answers} of {n} answers, {own.Brand} in {own.Answers}. Find out what the answers credit them for, and publish the facts and comparisons that make {own.Brand} the natural recommendation."),
+                brand.FromSimulatedOnly ? SuggestionPriority.Low : own.Answers * 2 <= top.Answers ? SuggestionPriority.High : SuggestionPriority.Medium,
+                "brand-entity", [],
+                "Ahead: " + string.Join(", ", ahead.Take(5).Select(m => string.Create(CultureInfo.InvariantCulture, $"{m.Brand} {m.Answers}/{n}"))) + basis,
+                SuggestionStatus.ToDo, "From the latest audit's answers.", []);
+        }
+
+        var groups = brand.Sources.ToDictionary(g => g.Category, StringComparer.Ordinal);
+        var ownCited = groups.GetValueOrDefault(BrandAnalyzer.Owned)?.Citations ?? 0;
+
+        if (groups.GetValueOrDefault("Complaints & reviews") is { } complaints)
+        {
+            yield return new Suggestion("brand:complaints", "Answer the complaints the engines read",
+                $"Engines cite complaint and review sites when they describe the bank ({string.Join(", ", complaints.TopHosts)}). Resolve and reply to the visible complaints, and publish clear help content for the recurring issues.",
+                SuggestionPriority.High, "brand-entity", [],
+                string.Create(CultureInfo.InvariantCulture, $"{complaints.Citations} citation(s) of complaint and review sites") + basis, SuggestionStatus.ToDo, "From the latest audit's answers.", []);
+        }
+
+        if (groups.GetValueOrDefault("Wikipedia") is { } wiki)
+        {
+            yield return new Suggestion("brand:wikipedia", "Keep the bank's Wikipedia and Wikidata entries complete and current",
+                "Engines use Wikipedia for facts about the bank (ownership, history, size, products). Check that the Turkish and English articles and the Wikidata item are accurate, current and link to the official sites.",
+                SuggestionPriority.Medium, "brand-entity", [],
+                string.Create(CultureInfo.InvariantCulture, $"{wiki.Citations} citation(s): {string.Join(", ", wiki.TopHosts)}") + basis, SuggestionStatus.ToDo, "From the latest audit's answers.", []);
+        }
+
+        if (groups.GetValueOrDefault("Comparison sites") is { } comparison && comparison.Citations > ownCited)
+        {
+            yield return new Suggestion("brand:comparison-sites", "Make sure comparison sites show the bank's current offers",
+                string.Create(CultureInfo.InvariantCulture,
+                    $"Engines cited comparison sites {comparison.Citations} time(s) and the bank's own sites {ownCited} time(s). Check the bank's rates, fees and products on {string.Join(", ", comparison.TopHosts)} are listed, correct and current."),
+                SuggestionPriority.Medium, "content", [], string.Join(", ", comparison.TopHosts) + basis, SuggestionStatus.ToDo, "From the latest audit's answers.", []);
+        }
+    }
+
+    private static string LowerFirst(string s) => s.Length == 0 ? s : char.ToLowerInvariant(s[0]) + s[1..];
+
     private static (SuggestionStatus, string) JudgeFix(DateTime fixedAt, List<ProbeSnapshot> before, List<ProbeSnapshot> after)
     {
         var since = $"Live on the page since {Day(fixedAt)}.";
@@ -203,7 +399,7 @@ public static class VisibilityAdvisor
             : (SuggestionStatus.LiveAwaitingEngines, $"{since} {change} Engines re-crawl on their own schedule; this can take days to weeks.");
     }
 
-    private static IEnumerable<Suggestion> PromptSuggestions(List<AuditSnapshot> audits, string site)
+    private static IEnumerable<Suggestion> PromptSuggestions(List<AuditSnapshot> audits, string site, AuditMetricsDocument? latestPage)
     {
         var byPrompt = audits
             .SelectMany(a => a.Probes.Select(p => (a.AtUtc, Probe: p)))
@@ -254,7 +450,7 @@ public static class VisibilityAdvisor
                 .GroupBy(h => h, StringComparer.OrdinalIgnoreCase)
                 .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
                 .Take(3).Select(g => g.Key).ToList();
-            var citedText = cited.Count == 0 ? "" : $" They cited {string.Join(", ", cited)} instead; see what those pages cover that yours doesn't.";
+            var citedText = cited.Count == 0 ? "" : $" They cited {string.Join(", ", cited)} instead{CitedPageFeatures(latestPage, cited)}";
             var tips = missing.Select(p => p.EngineKey).Distinct(StringComparer.OrdinalIgnoreCase)
                 .Where(EngineTipsByKey.ContainsKey)
                 .Select(k => new EngineTip(missing.First(p => string.Equals(p.EngineKey, k, StringComparison.OrdinalIgnoreCase)).EngineName, EngineTipsByKey[k]))

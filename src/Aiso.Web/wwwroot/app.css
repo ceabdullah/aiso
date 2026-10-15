@@ -450,3 +450,18 @@ h1:focus { outline: none; } /* FocusOnNavigate moves focus here for screen reade
 [data-theme="light"] { --eng-nvidia: #008300; --eng-gptoss: #4a3aa7; --eng-deepseek: #e87ba4; --eng-glm: #e34948; }
 .eng-nvidia { --eng: var(--eng-nvidia); } .eng-gptoss { --eng: var(--eng-gptoss); }
 .eng-deepseek { --eng: var(--eng-deepseek); } .eng-glm { --eng: var(--eng-glm); }
+
+/* Brand insights: single-series horizontal bars; the bank's own row uses the accent, the rest stay neutral. */
+.brand-grid { gap: 24px; }
+.brand-panel h4 { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
+.sim-note { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: color-mix(in srgb, var(--warn) 8%, transparent); }
+.hbars { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.hbar { display: grid; grid-template-columns: minmax(110px, 38%) 1fr 44px; gap: 10px; align-items: center; font-size: 13px; }
+.hbar-label { overflow-wrap: anywhere; line-height: 1.2; }
+.hbar-sub { display: block; font-size: 11px; color: var(--muted); }
+.hbar-track { height: 10px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.hbar-fill { display: block; height: 100%; border-radius: 999px; background: color-mix(in srgb, var(--muted) 70%, var(--surface-2)); transition: width .6s ease-out; }
+.hbar.own .hbar-fill { background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+.hbar.own .hbar-label { font-weight: 700; }
+.hbar-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .hbar-fill { transition: none; } }

@@ -16,6 +16,7 @@ public sealed class DatabaseSeeder(ILogger<DatabaseSeeder> logger)
         await SeedSettingsAsync(context, cancellationToken);
         await SeedTargetsAsync(context, cancellationToken);
         await BackfillOwnedDomainsAsync(context, cancellationToken);
+        await UpgradeTargetsAsync(context, cancellationToken);
         await SeedRoleMappingsAsync(context, cancellationToken);
 
         var written = await context.SaveChangesAsync(cancellationToken);
@@ -42,8 +43,9 @@ public sealed class DatabaseSeeder(ILogger<DatabaseSeeder> logger)
     {
         ["teb-portal"] = "teb.com.tr",
         ["cepteteb"] = "cepteteb.com.tr",
-        // Replace the App Store path with the real listing; the bank's own sites also count for the app.
-        ["teb-ios"] = "apps.apple.com/tr/app/teb-mobil,teb.com.tr,cepteteb.com.tr",
+        // TEB's retail iOS app is CEPTETEB; the bank's own sites also count for the app.
+        ["teb-ios"] = "apps.apple.com/tr/app/cepteteb,teb.com.tr,cepteteb.com.tr",
+        ["teb-brand"] = "teb.com.tr,cepteteb.com.tr,apps.apple.com/tr/app/cepteteb",
     };
 
     /// <summary>Databases created before answer-engine probing have no owned domains; fill the defaults once.</summary>
@@ -89,11 +91,10 @@ public sealed class DatabaseSeeder(ILogger<DatabaseSeeder> logger)
         var mobile = new TargetProfile
         {
             Code = "teb-ios",
-            DisplayName = "TEB Mobile (App Store)",
-            // Replace with the exact apps.apple.com listing URL for the bank's iOS app.
-            BaseUrl = "https://apps.apple.com/tr/app/teb-mobil/id000000000",
+            DisplayName = MobileName,
+            BaseUrl = MobileUrl,
             ChannelKind = TargetChannelKind.MobileAppStore,
-            BrandKeywords = "TEB Mobil,CEPTETEB,TEB",
+            BrandKeywords = "CEPTETEB,Cepteteb,TEB",
             OwnedDomains = DefaultOwnedDomains["teb-ios"],
             PrimaryLanguageCode = "tr-TR",
         };
@@ -110,7 +111,62 @@ public sealed class DatabaseSeeder(ILogger<DatabaseSeeder> logger)
             ("tr-TR", "En kullanışlı mobil bankacılık uygulaması hangisi?", "mobile-banking"),
             ("en-US", "Which Turkish bank has the highest rated iPhone banking app?", "mobile-banking"));
 
-        context.TargetProfiles.AddRange(portal, digital, mobile);
+        context.TargetProfiles.AddRange(portal, digital, mobile, BrandTarget());
+    }
+
+    private const string MobileName = "CEPTETEB (App Store)";
+    private const string MobileUrl = "https://apps.apple.com/tr/app/cepteteb/id353385550";
+
+    /// <summary>
+    /// The bank as a brand: general questions about TEB that aren't tied to one website. The answers show how engines
+    /// portray TEB, which banks they prefer and which sources shape that picture.
+    /// </summary>
+    private static TargetProfile BrandTarget()
+    {
+        var brand = new TargetProfile
+        {
+            Code = "teb-brand",
+            DisplayName = "TEB (brand)",
+            BaseUrl = "https://www.teb.com.tr",
+            ChannelKind = TargetChannelKind.Brand,
+            BrandKeywords = "TEB,Türk Ekonomi Bankası,Turk Ekonomi Bankasi,CEPTETEB",
+            OwnedDomains = DefaultOwnedDomains["teb-brand"],
+            PrimaryLanguageCode = "tr-TR",
+        };
+        AddPrompts(brand,
+            ("tr-TR", "TEB (Türk Ekonomi Bankası) hakkında ne biliyorsun?", "brand"),
+            ("tr-TR", "TEB güvenilir bir banka mı?", "brand-trust"),
+            ("tr-TR", "TEB mi Garanti BBVA mı, hangisini önerirsin?", "brand-comparison"),
+            ("tr-TR", "TEB müşterileri bankadan en çok neden şikayet ediyor?", "brand-reputation"),
+            ("en-US", "What is TEB bank in Turkey known for?", "brand"),
+            ("en-US", "Is TEB a good bank for expats living in Turkey?", "brand-trust"));
+        return brand;
+    }
+
+    /// <summary>
+    /// Brings databases seeded by earlier versions up to date: the placeholder App Store link becomes CEPTETEB's
+    /// listing, and the brand channel is added. Idempotent; edits made since are left alone.
+    /// </summary>
+    private static async Task UpgradeTargetsAsync(AisoDbContext context, CancellationToken ct)
+    {
+        var targets = await context.TargetProfiles.Include(t => t.TestPrompts).ToListAsync(ct);
+        if (targets.Count == 0)
+        {
+            return; // a new database gets everything from SeedTargetsAsync
+        }
+
+        if (targets.FirstOrDefault(t => t.Code == "teb-ios" && t.BaseUrl.Contains("id000000000", StringComparison.Ordinal)) is { } mobile)
+        {
+            mobile.BaseUrl = MobileUrl;
+            mobile.DisplayName = MobileName;
+            mobile.BrandKeywords = "CEPTETEB,Cepteteb,TEB";
+            mobile.OwnedDomains = (mobile.OwnedDomains ?? string.Empty).Replace("apps.apple.com/tr/app/teb-mobil", "apps.apple.com/tr/app/cepteteb", StringComparison.Ordinal);
+        }
+
+        if (!targets.Any(t => t.Code == "teb-brand"))
+        {
+            context.TargetProfiles.Add(BrandTarget());
+        }
     }
 
     private static void AddPrompts(TargetProfile target, params (string Lang, string Text, string Category)[] prompts)

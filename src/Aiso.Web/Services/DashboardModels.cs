@@ -202,3 +202,6 @@ public sealed record AnswerFacets(
     IReadOnlyList<(string Key, string Name)> Engines,
     IReadOnlyList<(string Code, string Name)> Channels,
     IReadOnlyList<string> Languages);
+
+/// <summary>Share of voice and source mix across channels, from the latest audits.</summary>
+public sealed record BrandInsights(int AnswersAnalyzed, bool FromSimulatedOnly, IReadOnlyList<BrandMention> ShareOfVoice, IReadOnlyList<SourceGroup> Sources, DateTime AsOfUtc);

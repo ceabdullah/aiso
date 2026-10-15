@@ -39,3 +39,30 @@ public sealed record ScrapeResult(
     PageMetrics? Metrics,
     IReadOnlyList<ScoreSignal> Signals,
     decimal OnPageScore);
+
+/// <summary>A scraped page plus its links (empty when the fetch failed).</summary>
+public sealed record PageScrape(ScrapeResult Result, IReadOnlyList<Uri> Links);
+
+/// <summary>One page of a site crawl, reduced to what the advisor and the plan writer need.</summary>
+public sealed record CrawledPage(string Url, int? HttpStatus, decimal Score, IReadOnlyList<string> FailedSignals, int WordCount);
+
+/// <summary>How many crawled pages pass one on-page check, with a few failing URLs as examples.</summary>
+public sealed record SiteCheck(string Signal, int Passed, int Total, IReadOnlyList<string> FailingExamples)
+{
+    public decimal PassRate => Total == 0 ? 0 : Math.Round(100m * Passed / Total, 1);
+}
+
+/// <summary>Result of crawling a channel's own site (same host, robots.txt respected).</summary>
+public sealed record SiteCrawl(int PagesCrawled, int PagesSkippedByRobots, int BrokenPages, IReadOnlyList<SiteCheck> Checks, IReadOnlyList<CrawledPage> Pages);
+
+/// <summary>A page an AI engine cited instead of the brand, fetched and checked like the brand's own page.</summary>
+public sealed record CompetitorPage(
+    string Url,
+    string Host,
+    int Citations,
+    IReadOnlyList<string> Engines,
+    bool Fetched,
+    string? Error,
+    IReadOnlyList<ScoreSignal> Signals,
+    int WordCount,
+    IReadOnlyList<string> JsonLdTypes);

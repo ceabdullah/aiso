@@ -17,8 +17,16 @@ public static class AgentPromptBuilder
               - {{target.Code}}.scrape.json  : on-page structural signals with a weighted score breakdown ("signals")
               - {{target.Code}}.prompts.json : answers that AI answer engines (ChatGPT, Gemini, Perplexity, Claude)
                 gave to customer questions: whether the brand was mentioned, and which web sources each engine cited
+              - {{target.Code}}.brand.json (if present): which banks the engines named ("shareOfVoice") and which kinds of
+                sources they cited ("sources": own sites, competitor banks, comparison sites, news, complaints, Wikipedia, …)
+              - {{target.Code}}.site.json (if present): a crawl of the brand's own site; "checks" says how many pages pass each signal
+              - {{target.Code}}.competitors.json (if present): the pages the engines cited instead of the brand, checked with the
+                same signals; compare them with the brand's pages and say concretely what they have that the brand lacks
+              - {{target.Code}}.app.json (if present): public App Store data (rating, ratings count, last update, recent reviews)
+                and leading peer apps for comparison
             Earlier runs may exist under data/ for trend comparison; read them only if useful.
 
+            {{BrandGuidance(target)}}
             Write every human-readable string in the language "{{languageCode}}".
             Recommend changes the target owners can make to raise visibility in AI/generative search answers
             (structured data, answer-ready content, crawlability, app-store listing quality, brand/entity clarity).
@@ -31,4 +39,10 @@ public static class AgentPromptBuilder
             Return between 3 and 12 items, most impactful first. Do not create or modify any files.
             """);
     }
+
+    private static string BrandGuidance(TargetProfile target) => target.ChannelKind == Domain.Enums.TargetChannelKind.Brand
+        ? "This is a brand-level channel with no single website: the questions are about the bank itself. Assess how the engines " +
+          "portray it (tone, facts and claims, strengths and weaknesses they repeat, competitors they prefer and why) and which " +
+          "sources shape that picture. Recommend brand-entity, PR, content and reputation actions; flag claims that look outdated or wrong."
+        : "When competitor banks are named more often than the brand, say which ones and what the answers credit them for.";
 }
