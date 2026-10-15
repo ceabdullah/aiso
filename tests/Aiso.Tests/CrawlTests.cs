@@ -149,13 +149,15 @@ public sealed class CrawlTests
             new SiteCrawl(10, 0, 1,
                 [new SiteCheck("MetaDescription", 2, 9, ["https://www.teb.com.tr/a"]), new SiteCheck("FaqSchema", 0, 9, [])],
                 [new CrawledPage("https://www.teb.com.tr/old", 404, 0, [], 0)]),
-            [new CompetitorPage("https://www.rival.com.tr/m", "rival.com.tr", 3, ["ChatGPT"], true, null, [new ScoreSignal("FaqSchema", 10, true, "ok")], 1240, ["FAQPage"])],
-            new AppStoreData(new AppListing(1, "CEPTETEB", "TEB", 4.5m, 300_000, "8.22.0", DateTime.UtcNow.AddDays(-10), 900, null, 6, null), null,
-                [new AppReview("Çöküyor", "x", 1, null, null)],
-                [new AppListing(2, "Garanti BBVA", "Garanti", 4.7m, 2_200_000, null, null, 0, null, 0, null), new AppListing(3, "Akbank", "Akbank", 4.8m, 1_700_000, null, null, 0, null, 0, null)]));
+            [new CompetitorPage("https://www.rival.com.tr/m", "rival.com.tr", 3, ["ChatGPT"], true, null, [new ScoreSignal("FaqSchema", 10, true, "ok")], 1240, ["FAQPage"])]);
         var probe = new ProbeSnapshot(Guid.NewGuid(), "Mevduat faizi en yüksek banka?", "tr-TR", "chatgpt", "ChatGPT", false, false, ["rival.com.tr"]);
 
-        var s = VisibilityAdvisor.Analyze([new AuditSnapshot(DateTime.UtcNow, page, [probe])], ["teb.com.tr"]);
+        var appPage = new AuditMetricsDocument(null, [], App: new AppStoreData(new AppListing(1, "CEPTETEB", "TEB", 4.5m, 300_000, "8.22.0", DateTime.UtcNow.AddDays(-10), 900, null, 6, null), null,
+                [new AppReview("Çöküyor", "x", 1, null, null)],
+                [new AppListing(2, "Garanti BBVA", "Garanti", 4.7m, 2_200_000, null, null, 0, null, 0, null), new AppListing(3, "Akbank", "Akbank", 4.8m, 1_700_000, null, null, 0, null, 0, null)]));
+
+        var s = VisibilityAdvisor.Analyze([new AuditSnapshot(DateTime.UtcNow, page, [probe])], ["teb.com.tr"])
+            .Concat(VisibilityAdvisor.Analyze([new AuditSnapshot(DateTime.UtcNow, appPage, [])], ["teb.com.tr"])).ToList();
 
         var faq = Assert.Single(s, x => x.Key == "signal:FaqSchema");
         Assert.Equal(SuggestionPriority.Critical, faq.Priority); // High, raised because the cited competitor page has it
@@ -203,4 +205,20 @@ public class ApplyKitKeyTests
 
     [Fact]
     public void Suggestions_without_a_kit_get_none() => Assert.Empty(ApplyKit.For(S("site:broken"), Ctx));
+}
+
+public class AppChannelSignalTests
+{
+    [Fact]
+    public void App_channels_only_get_storefront_suggestions()
+    {
+        var page = new AuditMetricsDocument(null,
+            [new ScoreSignal("SingleH1", 8, false, "0 H1"), new ScoreSignal("StorefrontRating", 20, false, "3.9")],
+            App: new AppStoreData(null, "x", [], []));
+
+        var keys = VisibilityAdvisor.Analyze([new AuditSnapshot(DateTime.UtcNow, page, [])], []).Select(x => x.Key).ToList();
+
+        Assert.Contains("signal:StorefrontRating", keys);
+        Assert.DoesNotContain("signal:SingleH1", keys); // Apple's page, not the bank's to change
+    }
 }

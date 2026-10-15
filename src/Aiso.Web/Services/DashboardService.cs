@@ -77,7 +77,7 @@ public sealed class DashboardService(
             var answers = scored.Sum(e => e.Evaluated);
             decimal? visibility = answers == 0 ? null : Math.Round(100m * scored.Sum(e => e.Visible) / answers, 2);
             decimal? overall = latest is null ? null
-                : t.ChannelKind == TargetChannelKind.Brand ? visibility ?? latest.OverallScore // brand: answers only, no page
+                : t.ChannelKind == TargetChannelKind.Brand ? visibility // brand: answers only; null ("—") until a web-searching engine answers
                 : AisoScore.Overall(latest.OnPageScore, visibility);
             summaries.Add(new TargetSummary(t.Id, t.Code, t.DisplayName, t.BaseUrl, t.ChannelKind,
                 overall, latest?.OnPageScore, visibility,

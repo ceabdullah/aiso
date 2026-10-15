@@ -150,9 +150,11 @@ public static class VisibilityAdvisor
             yield break;
         }
 
+        // An App Store channel's page belongs to Apple: only the listing (storefront) checks are the bank's to fix.
+        var isApp = withPage[^1].Page!.App is not null || withPage[^1].Page!.Metrics?.Storefront is not null;
         foreach (var signal in withPage[^1].Page!.Signals)
         {
-            if (!SignalAdvices.TryGetValue(signal.Name, out var advice))
+            if (!SignalAdvices.TryGetValue(signal.Name, out var advice) || (isApp && !signal.Name.StartsWith("Storefront", StringComparison.Ordinal)))
             {
                 continue;
             }

@@ -14,6 +14,10 @@ else
         {
             <EngineBadge Key="@s.EngineKey" Name="@s.Engine" />
         }
+        @if (Series.Any(x => x.Engine.Contains("(simulated)", StringComparison.Ordinal)))
+        {
+            <span class="muted small">* simulated: no web search</span>
+        }
         <span class="spacer"></span>
         <button type="button" class="btn btn-ghost btn-sm" aria-pressed="@_table" @onclick="() => _table = !_table">@(_table ? "Show chart" : "Show table")</button>
     </div>
@@ -68,7 +72,7 @@ else
                         @if (s.Days.Count > 0 && Series.Count <= 4)
                         {
                             var last = s.Days[^1];
-                            @((MarkupString)SvgText(Xd(Days.IndexOf(last.Day)) + 8, Yd(last.Rate) + 4, "end-label", "start", s.Engine))
+                            @((MarkupString)SvgText(Xd(Days.IndexOf(last.Day)) + 8, Yd(last.Rate) + 4, "end-label", "start", s.Engine.Replace(" (simulated)", "*", StringComparison.Ordinal)))
                         }
                     </g>
                 }
@@ -99,7 +103,7 @@ else
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<EngineSeries> Series { get; set; } = [];
 
-    private const double W = 800, H = 240, PadL = 44, PadR = 96, PadT = 12, PadB = 26;
+    private const double W = 800, H = 240, PadL = 44, PadR = 110, PadT = 12, PadB = 26;
     private bool _table;
     private int? _hover;
 

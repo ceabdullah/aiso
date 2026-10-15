@@ -113,6 +113,12 @@ public sealed class AuditPipelineService(
                 .Select(a => (decimal?)a.OverallScore)
                 .FirstOrDefaultAsync(ct);
 
+            // A brand channel with no web-searching answers has nothing measured: don't report it as a score of 0.
+            if (target.ChannelKind == TargetChannelKind.Brand && log.PromptsEvaluated == 0)
+            {
+                continue;
+            }
+
             alertRows.Add(new VisibilityAlertRow(target.DisplayName, target.BaseUrl, log.OverallScore, log.OnPageScore,
                 log.PromptVisibilityScore, previous, plan?.ReportFilePath));
         }

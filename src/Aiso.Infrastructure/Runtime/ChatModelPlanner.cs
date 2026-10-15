@@ -123,7 +123,37 @@ public sealed partial class ChatModelPlanner(
         ArgumentNullException.ThrowIfNull(text);
         var cleaned = ThinkBlock().Replace(text, string.Empty).Trim();
         var fence = CodeFence().Match(cleaned);
-        return fence.Success ? fence.Groups[1].Value.Trim() : cleaned;
+        cleaned = fence.Success ? fence.Groups[1].Value.Trim() : cleaned;
+        return FirstJsonObject(cleaned) ?? cleaned;
+    }
+
+    /// <summary>
+    /// The first complete JSON object in the text: smaller models sometimes add prose before it or stray brackets
+    /// after it. Null when there is no complete object.
+    /// </summary>
+    private static string? FirstJsonObject(string text)
+    {
+        var start = text.IndexOf('{', StringComparison.Ordinal);
+        if (start < 0)
+        {
+            return null;
+        }
+
+        var bytes = Encoding.UTF8.GetBytes(text[start..]);
+        var reader = new Utf8JsonReader(bytes, new JsonReaderOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+        try
+        {
+            if (!reader.Read() || !reader.TrySkip())
+            {
+                return null;
+            }
+
+            return Encoding.UTF8.GetString(bytes, 0, (int)reader.BytesConsumed);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static ClaudeCliResult Failed(string error, TimeSpan elapsed) =>

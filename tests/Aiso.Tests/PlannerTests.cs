@@ -76,6 +76,8 @@ public sealed class PlannerTests : IDisposable
     [InlineData("<think>reasoning…</think>\n{\"summary\":\"s\",\"items\":[]}", "{\"summary\":\"s\",\"items\":[]}")]
     [InlineData("```json\n{\"summary\":\"s\"}\n```", "{\"summary\":\"s\"}")]
     [InlineData("{\"summary\":\"s\"}", "{\"summary\":\"s\"}")]
+    [InlineData("Here is the plan:\n{\"summary\":\"s\",\"items\":[{\"title\":\"t\"}],\"summary\":\"s\"}]}", "{\"summary\":\"s\",\"items\":[{\"title\":\"t\"}],\"summary\":\"s\"}")]
+    [InlineData("no json here", "no json here")]
     public void Answer_is_cleaned_of_reasoning_and_fences(string raw, string expected) =>
         Assert.Equal(expected, ChatModelPlanner.CleanAnswer(raw));
 
