@@ -78,7 +78,7 @@ public static partial class SeoChecks
 
     /// <summary>Not part of the health score: found by matching customer questions to the crawled pages' headings.</summary>
     public static readonly SeoCheck TopicGap = new("topic-gap", "Questions without a page", "Create pages that target the questions customers ask",
-        "No crawled page has these questions' main words in its title or headings, and no sitemap URL in its address, so search engines have no page to rank for them, and AI engines no page of yours to cite.", 0);
+        "No page has these questions' main words in its title or address (crawled pages and the sitemap), so search engines have no page to rank for them, and AI engines no page of yours to cite.", 0);
 
     private static readonly Dictionary<string, SeoCheck> ByKey = All.Append(TopicGap).ToDictionary(c => c.Key, StringComparer.Ordinal);
 
@@ -231,37 +231,73 @@ public static partial class SeoChecks
     }
 
     /// <summary>
-    /// The page that best targets a question: the crawled page whose title and content headings, or else the sitemap URL
-    /// whose address, shares the most of the question's keywords. A match needs at least two keywords (one for a
-    /// one-keyword question) and a quarter of them, since customer questions carry generic words (bankalar, dijital).
+    /// The page that best targets a question: a crawled page or sitemap URL whose title or address shares enough of the
+    /// question's keywords: at least two (one for a one-keyword question) and a quarter of them. Keywords found on many
+    /// of the site's pages say nothing about any one page (the bank's name in every title matches "bankalar", "Türkiye"),
+    /// so they are left out. Headings only break ties: a home page's many headings mention everything.
     /// Words are compared without Turkish diacritics (URLs have none) and by a shared stem, which copes with suffixes
     /// (kartı ~ kartları, mevduatta ~ mevduat).
     /// </summary>
     public static TopicPage? PageFor(string question, string languageCode, IReadOnlyList<CrawledPage> pages, IReadOnlyList<string>? sitemapUrls = null)
     {
         ArgumentNullException.ThrowIfNull(pages);
-        var keywords = Keywords(question, languageCode).Select(Fold).Distinct(StringComparer.Ordinal).ToList();
+        // One keyword per stem: "banks" and "banking" shouldn't both count for the same page word.
+        var keywords = new List<string>();
+        foreach (var k in Keywords(question, languageCode).Select(Fold).Where(k => !keywords.Any(x => SameStem(x, k))))
+        {
+            keywords.Add(k);
+        }
+
         if (keywords.Count == 0)
         {
             return null;
         }
 
         var culture = CultureFor(languageCode);
-        var need = Math.Min(keywords.Count, Math.Max(2, (keywords.Count + 3) / 4));
-        var crawled = pages.Where(p => !string.IsNullOrWhiteSpace(p.Topics))
-            .Select(p => (Page: new TopicPage(p.Url, p.Title), Text: p.Topics!.ToLower(culture), Rank: 0));
+        var live = pages.Where(p => p.HttpStatus is null or < 400).ToList();
+        // The site's name, in most titles ("… | Türk Ekonomi Bankası"), says nothing about a page.
+        var titleWords = live.Select(p => Words(p.Title?.ToLower(culture))).ToList();
+        var siteName = live.Count < 4 ? []
+            : titleWords.SelectMany(w => w).Distinct(StringComparer.Ordinal)
+                .Where(w => titleWords.Count(t => t.Contains(w)) * 2 > live.Count).ToHashSet(StringComparer.Ordinal);
+        var crawled = live.Select((p, i) => (Page: new TopicPage(p.Url, p.Title),
+            Primary: titleWords[i].Where(w => !siteName.Contains(w)).Concat(Words(UrlWords(p.Url))).Distinct(StringComparer.Ordinal).ToList(),
+            Headings: Words(p.Topics?.ToLower(culture)), Rank: 0));
         var seen = pages.Select(p => p.Url).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var listed = (sitemapUrls ?? []).Where(u => !seen.Contains(u))
-            .Select(u => (Page: new TopicPage(u, null), Text: Uri.TryCreate(u, UriKind.Absolute, out var uri) ? Uri.UnescapeDataString(uri.AbsolutePath).ToLowerInvariant() : string.Empty, Rank: 1));
+            .Select(u => (Page: new TopicPage(u, null), Primary: Words(UrlWords(u)), Headings: new List<string>(), Rank: 1));
+        var candidates = crawled.Concat(listed).ToList();
 
-        return crawled.Concat(listed)
-            .Select(c => (c.Page, c.Rank, Words: WordRegex().Matches(c.Text).Select(m => Fold(m.Value)).Distinct(StringComparer.Ordinal).ToList()))
-            .Select(c => (c.Page, c.Rank, Hits: keywords.Count(k => c.Words.Any(w => SameStem(k, w)))))
+        if (candidates.Count >= MinPagesForCommonWords)
+        {
+            var limit = candidates.Count * CommonWordShare;
+            keywords = keywords.Where(k => candidates.Count(c => c.Primary.Any(w => SameStem(k, w))) <= limit).ToList();
+            if (keywords.Count == 0)
+            {
+                return null;
+            }
+        }
+
+        var need = Math.Min(keywords.Count, Math.Max(2, (keywords.Count + 3) / 4));
+        return candidates
+            .Select(c => (c.Page, c.Rank, Hits: Hits(keywords, c.Primary), Extra: Hits(keywords, c.Headings)))
             .Where(c => c.Hits >= need)
-            .OrderByDescending(c => c.Hits).ThenBy(c => c.Rank).ThenBy(c => c.Page.Url.Length)
+            .OrderByDescending(c => c.Hits).ThenByDescending(c => c.Extra).ThenBy(c => c.Rank).ThenBy(c => c.Page.Url.Length)
             .Select(c => c.Page)
             .FirstOrDefault();
     }
+
+    // A keyword in the titles or addresses of more than this share of the site's pages is too common to point at one.
+    private const double CommonWordShare = 0.15;
+    private const int MinPagesForCommonWords = 10;
+
+    private static List<string> Words(string? text) =>
+        WordRegex().Matches(text ?? string.Empty).Select(m => Fold(m.Value)).Distinct(StringComparer.Ordinal).ToList();
+
+    private static int Hits(List<string> keywords, List<string> words) => keywords.Count(k => words.Any(w => SameStem(k, w)));
+
+    private static string UrlWords(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) ? Uri.UnescapeDataString(uri.AbsolutePath).ToLowerInvariant() : string.Empty;
 
     private static bool SameStem(string a, string b)
     {

@@ -60,7 +60,7 @@
     </div>
     <div class="kpi">
         <div class="kpi-head"><span class="kpi-icon"><Icon Name="check" /></span><span class="kpi-label">Questions with a page</span>
-            <Info Text="Customer test questions with a page that targets them: a crawled page whose title or headings, or a sitemap URL whose address, share the question's main words. A question without a page is content to create." /></div>
+            <Info Text="Customer test questions with a page that targets them: a crawled page or sitemap URL whose title or address shares the question's main words. A question without a page is content to create." /></div>
         <div class="kpi-value">
             <CountUp Value="c.Topics.Count(t => t.PageUrl is not null)" Decimals="0" /> <span class="muted">/ @c.Topics.Count</span>
         </div>
@@ -114,7 +114,7 @@
 
     <div class="panel">
         <div class="panel-head">
-            <h3>Customer questions → landing page <Info Text="For each active test question, the page that matches it best: a crawled page by its title and headings, or a sitemap URL by its address (marked sitemap). Menu and footer headings don't count. Questions without a page are the clearest content gaps: search engines have nothing to rank and AI engines nothing of yours to cite." /></h3>
+            <h3>Customer questions → landing page <Info Text="For each active test question, the page that matches it best by its title and address; headings only break ties, since a home page's headings mention everything. Pages found only in the sitemap are marked sitemap. Questions without a page are the clearest content gaps: search engines have nothing to rank and AI engines nothing of yours to cite." /></h3>
         </div>
         <table class="table">
             <thead><tr><th>Question</th><th>Best page</th></tr></thead>

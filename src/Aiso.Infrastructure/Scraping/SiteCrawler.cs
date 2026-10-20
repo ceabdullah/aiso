@@ -17,7 +17,7 @@ public sealed partial class SiteCrawler(NativeHtmlScraperService scraper, IOptio
 
     private readonly Dictionary<string, RobotsTxt> _robots = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Sitemap URLs kept with the crawl: their paths tell which topics have a page, beyond the pages crawled.</summary>
-    public const int MaxSitemapUrlsKept = 1500;
+    public const int MaxSitemapUrlsKept = 3000;
 
     private readonly HashSet<string> _robotsMissing = new(StringComparer.OrdinalIgnoreCase);
 
