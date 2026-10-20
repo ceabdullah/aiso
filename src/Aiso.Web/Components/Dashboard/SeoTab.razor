@@ -55,7 +55,7 @@
     <div class="kpi">
         <div class="kpi-head"><span class="kpi-icon"><Icon Name="reports" /></span><span class="kpi-label">XML sitemap</span>
             <Info Text="The sitemap lists the pages search engines should index. AISO reads the one named in robots.txt, or /sitemap.xml." /></div>
-        <div class="kpi-value small">@(c.Audit.SitemapUrls > 0 ? $"{c.Audit.SitemapUrls:N0} URLs" : "missing")</div>
+        <div class="kpi-value small">@(c.Audit.SitemapUrls > 0 ? c.Audit.SitemapUrls.ToString("N0", CultureInfo.InvariantCulture) + " URLs" : "missing")</div>
         <div class="kpi-foot muted">@(c.Audit.SitemapDeclared ? "listed in robots.txt" : "not listed in robots.txt")</div>
     </div>
     <div class="kpi">
