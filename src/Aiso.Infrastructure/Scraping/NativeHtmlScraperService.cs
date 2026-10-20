@@ -52,7 +52,8 @@ public sealed partial class NativeHtmlScraperService(
 
             logger.LogInformation("Scraped {Url} ({Status}) in {Elapsed} ms.", url, status, stopwatch.ElapsedMilliseconds);
             return new PageScrape(
-                new ScrapeResult(url.ToString(), status, true, null, DateTime.UtcNow, stopwatch.ElapsedMilliseconds, metrics, signals, ToScore(signals)),
+                new ScrapeResult(url.ToString(), status, true, null, DateTime.UtcNow, stopwatch.ElapsedMilliseconds, metrics, signals, ToScore(signals),
+                    response.RequestMessage?.RequestUri is { } final && final != url ? final.ToString() : null),
                 ExtractLinks(html, response.RequestMessage?.RequestUri ?? url));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
@@ -150,6 +151,7 @@ public sealed partial class NativeHtmlScraperService(
         var jsonLdTypes = jsonLdNodes.SelectMany(CollectTypes).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
         var images = root.SelectNodes("//img")?.ToList() ?? [];
+        var hasViewport = Meta("name", "viewport") is not null;
         var robots = Meta("name", "robots") ?? string.Empty;
 
         // Visible text approximation: strip script/style/noscript before counting words.
@@ -178,7 +180,9 @@ public sealed partial class NativeHtmlScraperService(
             WordCount: wordCount,
             ImageCount: images.Count,
             ImagesWithAlt: images.Count(i => !string.IsNullOrWhiteSpace(i.Attributes["alt"]?.Value)),
-            Storefront: kind == TargetChannelKind.MobileAppStore ? ParseStorefront(jsonLdNodes, Meta) : null);
+            Storefront: kind == TargetChannelKind.MobileAppStore ? ParseStorefront(jsonLdNodes, Meta) : null,
+            HasViewport: hasViewport,
+            HtmlLength: html.Length);
     }
 
     private static StorefrontMetrics ParseStorefront(List<JsonElement> jsonLd, Func<string, string, string?> meta)

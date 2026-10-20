@@ -16,6 +16,7 @@ public sealed partial class SiteCrawler(NativeHtmlScraperService scraper, IOptio
         [".pdf", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".zip", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".mp4", ".mp3", ".css", ".js", ".xml", ".json", ".ico"];
 
     private readonly Dictionary<string, RobotsTxt> _robots = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _robotsMissing = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Crawls the site of <paramref name="home"/>, which has already been scraped (it is not fetched again).</summary>
     public async Task<SiteCrawl> CrawlAsync(Uri start, PageScrape home, TargetChannelKind kind, CancellationToken ct)
@@ -29,7 +30,8 @@ public sealed partial class SiteCrawler(NativeHtmlScraperService scraper, IOptio
         var skipped = 0;
 
         var robots = await RobotsForAsync(start, ct);
-        foreach (var url in (await SitemapUrlsAsync(start, robots, ct)).Concat(home.Links))
+        var sitemapUrls = await SitemapUrlsAsync(start, robots, ct);
+        foreach (var url in sitemapUrls.Concat(home.Links))
         {
             Enqueue(url);
         }
@@ -52,7 +54,9 @@ public sealed partial class SiteCrawler(NativeHtmlScraperService scraper, IOptio
         }
 
         logger.LogInformation("Crawled {Count} page(s) of {Host}; {Skipped} skipped by robots.txt.", pages.Count, start.Host, skipped);
-        return Summarize(pages, skipped);
+        var facts = new SeoSiteFacts(!_robotsMissing.Contains(start.GetLeftPart(UriPartial.Authority)), robots.Sitemaps.Count > 0,
+            sitemapUrls.Select(SeoChecks.UrlKey).ToHashSet(StringComparer.Ordinal));
+        return Summarize(pages, skipped, facts);
 
         void Enqueue(Uri url)
         {
@@ -101,8 +105,8 @@ public sealed partial class SiteCrawler(NativeHtmlScraperService scraper, IOptio
         return pages;
     }
 
-    /// <summary>Per-check pass counts across the crawled pages. Static for unit testing.</summary>
-    public static SiteCrawl Summarize(IReadOnlyList<ScrapeResult> pages, int skippedByRobots)
+    /// <summary>Per-check pass counts across the crawled pages, and the SEO audit when the site facts are known. Static for unit testing.</summary>
+    public static SiteCrawl Summarize(IReadOnlyList<ScrapeResult> pages, int skippedByRobots, SeoSiteFacts? facts = null)
     {
         ArgumentNullException.ThrowIfNull(pages);
         var ok = pages.Where(p => p.Success).ToList();
@@ -112,9 +116,11 @@ public sealed partial class SiteCrawler(NativeHtmlScraperService scraper, IOptio
                 g.Where(x => !x.Signal.Passed).Select(x => x.Url).Take(3).ToList()))
             .OrderBy(c => c.PassRate).ThenBy(c => c.Signal, StringComparer.Ordinal)
             .ToList();
+        var (seo, seoIssues) = facts is null ? (null, null) : SeoChecks.Audit(pages, facts);
         var crawled = pages.Select(p => new CrawledPage(p.Url, p.HttpStatusCode, p.OnPageScore,
-            p.Signals.Where(s => !s.Passed).Select(s => s.Name).ToList(), p.Metrics?.WordCount ?? 0)).ToList();
-        return new SiteCrawl(pages.Count, skippedByRobots, pages.Count - ok.Count, checks, crawled);
+            p.Signals.Where(s => !s.Passed).Select(s => s.Name).ToList(), p.Metrics?.WordCount ?? 0,
+            p.ElapsedMs, p.Metrics?.Title, SeoChecks.Topics(p.Metrics), seoIssues?.GetValueOrDefault(p.Url))).ToList();
+        return new SiteCrawl(pages.Count, skippedByRobots, pages.Count - ok.Count, checks, crawled, seo);
     }
 
     private async Task<RobotsTxt> RobotsForAsync(Uri url, CancellationToken ct)
@@ -122,7 +128,13 @@ public sealed partial class SiteCrawler(NativeHtmlScraperService scraper, IOptio
         var origin = url.GetLeftPart(UriPartial.Authority);
         if (!_robots.TryGetValue(origin, out var robots))
         {
-            robots = RobotsTxt.Parse(await scraper.FetchTextAsync(new Uri(origin + "/robots.txt"), ct), options.Value.RobotsUserAgent);
+            var text = await scraper.FetchTextAsync(new Uri(origin + "/robots.txt"), ct);
+            if (text is null)
+            {
+                _robotsMissing.Add(origin);
+            }
+
+            robots = RobotsTxt.Parse(text, options.Value.RobotsUserAgent);
             _robots[origin] = robots;
         }
 

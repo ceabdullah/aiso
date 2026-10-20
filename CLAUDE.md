@@ -18,7 +18,8 @@ run folder and one target. Do exactly this:
    `ownedDomains` show what content the engines trust. Work out what the brand must publish to be the
    natural, cited answer, and note when one engine lags the others.
 3. When present, also read `data/<run>/<target>.site.json` (crawl of the brand's own site: `checks[]` gives how
-   many pages pass each signal), `data/<run>/<target>.competitors.json` (pages the engines cited instead of the
+   many pages pass each signal; `seo` is a technical SEO audit with a 0–100 `health` and `issues[]` such as duplicate
+   titles, missing viewport, sitemap/robots.txt problems, redirects and slow pages: give those to the `SEO` owner), `data/<run>/<target>.competitors.json` (pages the engines cited instead of the
    brand, checked with the same signals: name what they have that the brand lacks) and
    `data/<run>/<target>.app.json` (public App Store rating, reviews, last update and peer apps).
    `data/<run>/<target>.brand.json` gives the share of voice (which banks the engines named) and the kinds of

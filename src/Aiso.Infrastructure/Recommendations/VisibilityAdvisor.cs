@@ -55,6 +55,7 @@ public sealed record Suggestion(
     {
         "app-store" => "Mobile",
         "content" or "brand-entity" => "Digital Marketing",
+        "seo" => "SEO",
         _ => "Web",
     };
 }
@@ -139,7 +140,7 @@ public static class VisibilityAdvisor
 
         var site = ownedDomains.Count > 0 ? ownedDomains[0] : "your site";
         var latestPage = audits.LastOrDefault(a => a.Page is not null)?.Page;
-        return [.. SignalSuggestions(audits), .. SiteSuggestions(latestPage), .. AppSuggestions(latestPage), .. BrandSuggestions(latestPage), .. PromptSuggestions(audits, site, latestPage)];
+        return [.. SignalSuggestions(audits), .. SiteSuggestions(latestPage), .. SeoSuggestions(latestPage, audits[^1].Probes), .. AppSuggestions(latestPage), .. BrandSuggestions(latestPage), .. PromptSuggestions(audits, site, latestPage)];
     }
 
     private static IEnumerable<Suggestion> SignalSuggestions(List<AuditSnapshot> audits)
@@ -250,6 +251,52 @@ public static class VisibilityAdvisor
                 check.PassRate < 30m ? SuggestionPriority.High : SuggestionPriority.Medium, advice.Category, [],
                 string.Create(CultureInfo.InvariantCulture, $"{check.Signal}: {check.Passed} of {check.Total} crawled pages pass. Failing: {string.Join(", ", check.FailingExamples)}"),
                 SuggestionStatus.ToDo, "Found in the latest crawl.", []);
+        }
+    }
+
+    // Technical SEO across the crawled site, and customer questions no page targets.
+    private static IEnumerable<Suggestion> SeoSuggestions(AuditMetricsDocument? page, IReadOnlyList<ProbeSnapshot> probes)
+    {
+        if (page?.Site is not { Seo: { } seo } site)
+        {
+            yield break;
+        }
+
+        // Broken pages already have a suggestion of their own (site:broken).
+        foreach (var issue in seo.Issues.Where(i => i.Key != "broken"))
+        {
+            if (SeoChecks.Find(issue.Key) is not { } check)
+            {
+                continue;
+            }
+
+            var priority = issue.Key == "noindex-in-sitemap" || check.Weight >= 8 ? SuggestionPriority.High
+                : check.Weight >= 4 ? SuggestionPriority.Medium
+                : SuggestionPriority.Low;
+            if (!issue.SiteWide && issue.Share < 0.2m && priority != SuggestionPriority.Low)
+            {
+                priority++; // only a few pages affected
+            }
+
+            var scope = issue.SiteWide ? "Site-wide" : string.Create(CultureInfo.InvariantCulture, $"{issue.Pages} of {issue.Total} crawled pages");
+            var examples = issue.Examples.Count > 0 ? $" · e.g. {string.Join(", ", issue.Examples)}" : string.Empty;
+            yield return new Suggestion($"seo:{issue.Key}", check.Title, issue.Note is null ? check.Why : $"{check.Why} {issue.Note}.",
+                priority, "seo", [], $"{check.Label}: {scope}{examples}", SuggestionStatus.ToDo, "Found in the latest crawl.", []);
+        }
+
+        var questions = probes.GroupBy(p => p.PromptText, StringComparer.Ordinal).Select(g => (Text: g.Key, g.First().LanguageCode)).ToList();
+        if (questions.Count == 0 || !site.Pages.Any(p => p.Topics is not null))
+        {
+            yield break;
+        }
+
+        var uncovered = questions.Where(q => SeoChecks.BestPageFor(q.Text, q.LanguageCode, site.Pages) is null).ToList();
+        if (uncovered.Count > 0)
+        {
+            yield return new Suggestion("seo:topic-gap", SeoChecks.TopicGap.Title, SeoChecks.TopicGap.Why,
+                uncovered.Count * 2 >= questions.Count ? SuggestionPriority.High : SuggestionPriority.Medium, "seo", [],
+                string.Create(CultureInfo.InvariantCulture, $"{uncovered.Count} of {questions.Count} questions: ") + string.Join(" · ", uncovered.Select(q => $"“{q.Text}”")),
+                SuggestionStatus.ToDo, string.Create(CultureInfo.InvariantCulture, $"Checked against the {site.Pages.Count} crawled pages."), []);
         }
     }
 

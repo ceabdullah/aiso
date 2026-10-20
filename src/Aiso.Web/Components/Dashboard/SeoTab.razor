@@ -1,0 +1,200 @@
+@using Aiso.Infrastructure.Scraping
+@implements IDisposable
+@inject DashboardService Dashboard
+@inject DashboardEvents Events
+
+@if (_channels is null)
+{
+    <Skeleton Kpis="4" Rows="4" />
+    return;
+}
+
+@if (_channels.Count == 0)
+{
+    <div class="panel feed-empty">
+        <p><strong>No SEO data yet.</strong></p>
+        <p class="muted">The SEO audit runs with the site crawl of each website channel. Run an audit to see it.</p>
+    </div>
+    return;
+}
+
+@{ var c = Selected; }
+
+<div class="filters" role="group" aria-label="Website">
+    @foreach (var ch in _channels)
+    {
+        <button type="button" class="pill @(ch.Id == c.Id ? "on" : null)" aria-pressed="@(ch.Id == c.Id)" @onclick="() => _selected = ch.Id">@ch.DisplayName</button>
+    }
+    <span class="spacer"></span>
+    <span class="muted small">crawled @c.AsOfUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) UTC ·
+        <a class="link-ext" href="@c.BaseUrl" target="_blank" rel="noopener">@Host(c.BaseUrl) <Icon Name="external" Size="12" /></a></span>
+</div>
+
+<div class="kpis">
+    <div class="kpi">
+        <div class="kpi-head"><span class="kpi-icon"><Icon Name="seo" /></span><span class="kpi-label">SEO health</span>
+            <Info Text="100 minus what the failed checks cost. Each check has a weight (broken pages and mobile viewport the most); a check failed on some pages costs its share. Separate from the AISO score." /></div>
+        <div class="kpi-value">
+            <ScoreBadge Value="c.Audit.Health" Threshold="80" />
+            @if (c.PreviousHealth is { } prev)
+            {
+                var delta = c.Audit.Health - prev;
+                <span class="delta @(delta >= 0 ? "up" : "down")" title="Change since the previous crawl">
+                    <Icon Name="@(delta >= 0 ? "up" : "down")" Size="12" />@Math.Abs(delta).ToString("0.0", CultureInfo.InvariantCulture)
+                </span>
+            }
+        </div>
+        <div class="kpi-foot muted">@c.Audit.Issues.Count failed check(s)</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-head"><span class="kpi-icon"><Icon Name="globe" /></span><span class="kpi-label">Pages checked</span>
+            <Info Text="Pages read in the latest crawl: the sitemap and links from the home page, same site only, robots.txt respected, up to the crawl limit. A sample, not necessarily the whole site." /></div>
+        <div class="kpi-value"><CountUp Value="c.Audit.PagesChecked" Decimals="0" /></div>
+        <div class="kpi-foot muted">@c.Pages.Count(p => p.HttpStatus is null or >= 400) broken</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-head"><span class="kpi-icon"><Icon Name="reports" /></span><span class="kpi-label">XML sitemap</span>
+            <Info Text="The sitemap lists the pages search engines should index. AISO reads the one named in robots.txt, or /sitemap.xml." /></div>
+        <div class="kpi-value small">@(c.Audit.SitemapUrls > 0 ? $"{c.Audit.SitemapUrls:N0} URLs" : "missing")</div>
+        <div class="kpi-foot muted">@(c.Audit.SitemapDeclared ? "listed in robots.txt" : "not listed in robots.txt")</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-head"><span class="kpi-icon"><Icon Name="check" /></span><span class="kpi-label">Questions with a page</span>
+            <Info Text="Customer test questions for which a crawled page has most of the question's words in its title or headings. A question without a page is content to create." /></div>
+        <div class="kpi-value">
+            <CountUp Value="c.Topics.Count(t => t.PageUrl is not null)" Decimals="0" /> <span class="muted">/ @c.Topics.Count</span>
+        </div>
+        <div class="kpi-foot muted">robots.txt @(c.Audit.RobotsTxtFound ? "found" : "missing")</div>
+    </div>
+</div>
+
+<div class="grid-2">
+    <div class="panel">
+        <div class="panel-head">
+            <h3>Issues <Info Text="Failed checks, most costly first. The bar is the share of crawled pages affected. Each one is also a suggestion for the SEO team, with a ready-to-use kit, in the Suggestions tab." /></h3>
+        </div>
+        @if (c.Audit.Issues.Count == 0)
+        {
+            <p class="muted">No technical SEO issues found on the crawled pages.</p>
+        }
+        <ol class="seo-issues">
+            @foreach (var i in c.Audit.Issues)
+            {
+                var check = SeoChecks.Find(i.Key);
+                <li class="seo-issue">
+                    <div class="seo-issue-head">
+                        <strong>@(check?.Label ?? i.Key)</strong>
+                        @if (check is not null)
+                        {
+                            <Info Text="@check.Why" />
+                        }
+                        <span class="spacer"></span>
+                        <span class="muted small">@(i.SiteWide ? "site-wide" : $"{i.Pages} of {i.Total} pages")</span>
+                    </div>
+                    @if (!i.SiteWide)
+                    {
+                        <span class="hbar-track"><span class="hbar-fill seo-fill" style="@Width(100m * i.Share)"></span></span>
+                    }
+                    @if (i.Note is not null)
+                    {
+                        <p class="small muted">@i.Note</p>
+                    }
+                    @foreach (var e in i.Examples)
+                    {
+                        <div class="mono small seo-example">@e</div>
+                    }
+                </li>
+            }
+        </ol>
+    </div>
+
+    <div class="panel">
+        <div class="panel-head">
+            <h3>Customer questions → landing page <Info Text="For each active test question, the crawled page whose title and headings match it best. Questions without a page are the clearest content gaps: search engines have nothing to rank and AI engines nothing of yours to cite." /></h3>
+        </div>
+        <table class="table">
+            <thead><tr><th>Question</th><th>Best page</th></tr></thead>
+            <tbody>
+                @foreach (var t in c.Topics.OrderBy(t => t.PageUrl is null ? 0 : 1))
+                {
+                    <tr>
+                        <td class="small">@t.Question <span class="muted mono">@t.LanguageCode</span></td>
+                        <td class="small">
+                            @if (t.PageUrl is { } url)
+                            {
+                                <a href="@url" target="_blank" rel="noopener" title="@url">@(t.PageTitle ?? Path(url))</a>
+                            }
+                            else
+                            {
+                                <span class="chip chip-warn">No page</span>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (c.Topics.Count == 0)
+                {
+                    <tr><td colspan="2" class="muted">No active test questions for this channel.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="panel">
+    <div class="panel-head">
+        <h3>Crawled pages <Info Text="Every page of the latest crawl, most issues first: HTTP status, time to deliver the HTML, visible words, title length and the checks it fails. Hover an issue for what it means." /></h3>
+    </div>
+    <div class="table-scroll">
+        <table class="table seo-pages">
+            <thead><tr><th>Page</th><th class="num">Status</th><th class="num">Time</th><th class="num">Words</th><th class="num">Title</th><th>Issues</th></tr></thead>
+            <tbody>
+                @foreach (var p in c.Pages.OrderByDescending(p => p.SeoIssues?.Count ?? 0).ThenBy(p => p.Url, StringComparer.Ordinal))
+                {
+                    <tr>
+                        <td class="small"><a href="@p.Url" target="_blank" rel="noopener" title="@p.Url">@Path(p.Url)</a></td>
+                        <td class="num small @(p.HttpStatus is null or >= 400 ? "bad-text" : null)">@(p.HttpStatus?.ToString(CultureInfo.InvariantCulture) ?? "—")</td>
+                        <td class="num small @(p.ResponseMs > SeoChecks.SlowMs ? "warn-text" : null)">@Seconds(p.ResponseMs)</td>
+                        <td class="num small">@p.WordCount.ToString("N0", CultureInfo.InvariantCulture)</td>
+                        <td class="num small @(p.Title is null or { Length: < 10 or > 70 } ? "warn-text" : null)" title="@p.Title">@(p.Title?.Length.ToString(CultureInfo.InvariantCulture) ?? "none")</td>
+                        <td>
+                            @foreach (var key in p.SeoIssues ?? [])
+                            {
+                                var check = SeoChecks.Find(key);
+                                <span class="tag" data-tip="@check?.Why">@(check?.Label ?? key)</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<SeoChannel>? _channels;
+    private Guid _selected;
+
+    private SeoChannel Selected => _channels!.FirstOrDefault(c => c.Id == _selected) ?? _channels![0];
+
+    protected override async Task OnInitializedAsync()
+    {
+        Events.AuditFinished += OnAuditFinishedAsync;
+        _channels = await Dashboard.GetSeoAsync();
+    }
+
+    private Task OnAuditFinishedAsync() => InvokeAsync(async () =>
+    {
+        _channels = await Dashboard.GetSeoAsync();
+        StateHasChanged();
+    });
+
+    private static string Width(decimal pct) => string.Create(CultureInfo.InvariantCulture, $"width:{Math.Clamp(pct, 0, 100):0.#}%");
+
+    private static string Seconds(long ms) => ms <= 0 ? "—" : string.Create(CultureInfo.InvariantCulture, $"{ms / 1000m:0.0} s");
+
+    private static string Host(string url) => Uri.TryCreate(url, UriKind.Absolute, out var u) ? u.Host : url;
+
+    private static string Path(string url) => Uri.TryCreate(url, UriKind.Absolute, out var u) ? (u.PathAndQuery.Length > 1 ? Uri.UnescapeDataString(u.PathAndQuery) : u.Host) : url;
+
+    public void Dispose() => Events.AuditFinished -= OnAuditFinishedAsync;
+}

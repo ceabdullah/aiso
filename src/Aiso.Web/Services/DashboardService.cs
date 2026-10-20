@@ -309,6 +309,55 @@ public sealed class DashboardService(
         return new BrandInsights(answers, latest.All(l => l.Brand!.FromSimulatedOnly), voice, sources, latest.Max(l => l.CreatedAtUtc));
     }
 
+    /// <summary>Technical SEO of each web channel from its two latest crawls, and which page targets each test question.</summary>
+    public async Task<IReadOnlyList<SeoChannel>> GetSeoAsync(CancellationToken ct = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(ct);
+        var since = DateTime.UtcNow.AddDays(-SuggestionHistoryDays);
+        var targets = await db.TargetProfiles.AsNoTracking()
+            .Where(t => t.IsActive && (t.ChannelKind == TargetChannelKind.CoreWebPortal || t.ChannelKind == TargetChannelKind.DigitalChannel))
+            .OrderBy(t => t.Code)
+            .Select(t => new
+            {
+                t.Id, t.Code, t.DisplayName, t.BaseUrl,
+                Prompts = t.TestPrompts.Where(p => p.IsActive).OrderBy(p => p.LanguageCode).ThenBy(p => p.PromptText)
+                    .Select(p => new { p.PromptText, p.LanguageCode }).ToList(),
+            })
+            .ToListAsync(ct);
+
+        var result = new List<SeoChannel>();
+        foreach (var t in targets)
+        {
+            // Newest first; most audits carry a crawl, so a handful is enough to find the latest two.
+            var logs = await db.LiveSearchAuditLogs.AsNoTracking()
+                .Where(a => a.TargetProfileId == t.Id && a.CreatedAtUtc >= since && a.Status != AuditStatus.Failed && a.MetricsJson != null)
+                .OrderByDescending(a => a.CreatedAtUtc)
+                .Select(a => new { a.CreatedAtUtc, a.MetricsJson })
+                .Take(10)
+                .ToListAsync(ct);
+            var crawls = logs
+                .Select(l => (l.CreatedAtUtc, Site: AuditMetricsDocument.TryParse(l.MetricsJson)?.Site))
+                .Where(l => l.Site?.Seo is not null)
+                .Take(2)
+                .ToList();
+            if (crawls.Count == 0)
+            {
+                continue;
+            }
+
+            var site = crawls[0].Site!;
+            var topics = t.Prompts.Select(p =>
+            {
+                var page = SeoChecks.BestPageFor(p.PromptText, p.LanguageCode, site.Pages);
+                return new TopicMatch(p.PromptText, p.LanguageCode, page?.Url, page?.Title);
+            }).ToList();
+            result.Add(new SeoChannel(t.Id, t.Code, t.DisplayName, t.BaseUrl, crawls[0].CreatedAtUtc, site.Seo!,
+                crawls.Count > 1 ? crawls[1].Site!.Seo!.Health : null, site.Pages, topics));
+        }
+
+        return result;
+    }
+
     /// <summary>How far back the suggestion feed looks to tell fixed problems from ones that never existed.</summary>
     public const int SuggestionHistoryDays = 90;
 

@@ -39,7 +39,7 @@
             {
                 <button type="button" class="pill @(_team == team ? "on" : null)" aria-pressed="@(_team == team)" @onclick="() => _team = team">@team</button>
             }
-            <Info Text="The team that can make the change. Web: site markup and pages. Digital Marketing: content, brand and PR. Mobile: the App Store listing and the app." />
+            <Info Text="The team that can make the change. Web: site markup and pages. SEO: technical SEO and landing pages for customer questions (see the SEO tab). Digital Marketing: content, brand and PR. Mobile: the App Store listing and the app." />
             <select class="input input-sm" aria-label="Channel" @bind="_channelCode">
                 <option value="">All channels</option>
                 @foreach (var c in _feed.Channels)
@@ -95,7 +95,7 @@
                         <div class="post-tags">
                             <span class="tag prio-@s.Priority.ToString().ToLowerInvariant()" data-tip="@PriorityTip(s.Priority)">@s.Priority</span>
                             <span class="tag" data-tip="The team that owns this change.">@s.Owner</span>
-                            <span class="tag" data-tip="The kind of change: content, structured data, technical, app store or brand entity.">@s.Category</span>
+                            <span class="tag" data-tip="The kind of change: content, structured data, technical, SEO, app store or brand entity.">@s.Category</span>
                             @foreach (var e in s.Engines)
                             {
                                 <EngineBadge Key="@e.ToLowerInvariant()" Name="@e" />
@@ -197,7 +197,7 @@
     private static readonly (string Key, string Label)[] StatusFilters =
         [("all", "All"), ("todo", "To do"), ("live", "Waiting on engines"), ("confirmed", "Confirmed")];
 
-    private static readonly string[] Teams = ["All teams", "Web", "Digital Marketing", "Mobile"];
+    private static readonly string[] Teams = ["All teams", "Web", "SEO", "Digital Marketing", "Mobile"];
 
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 

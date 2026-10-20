@@ -205,3 +205,18 @@ public sealed record AnswerFacets(
 
 /// <summary>Share of voice and source mix across channels, from the latest audits.</summary>
 public sealed record BrandInsights(int AnswersAnalyzed, bool FromSimulatedOnly, IReadOnlyList<BrandMention> ShareOfVoice, IReadOnlyList<SourceGroup> Sources, DateTime AsOfUtc);
+
+/// <summary>Which crawled page targets a customer question, if any (by its title and headings).</summary>
+public sealed record TopicMatch(string Question, string LanguageCode, string? PageUrl, string? PageTitle);
+
+/// <summary>A web channel's technical SEO from its latest crawl, with the health of the crawl before it.</summary>
+public sealed record SeoChannel(
+    Guid Id,
+    string Code,
+    string DisplayName,
+    string BaseUrl,
+    DateTime AsOfUtc,
+    SeoAudit Audit,
+    decimal? PreviousHealth,
+    IReadOnlyList<CrawledPage> Pages,
+    IReadOnlyList<TopicMatch> Topics);

@@ -33,6 +33,7 @@
         case "summary": <SummaryTab /> break;
         case "suggestions": <SuggestionsTab /> break;
         case "answers": <AnswersTab /> break;
+        case "seo": <SeoTab /> break;
         case "analytics": <AnalyticsTab /> break;
         case "prompts": <PromptsTab /> break;
         case "reports": <ReportsTab /> break;
@@ -54,6 +55,7 @@
         ("summary", "Summary", AisoPolicies.CanView, "Each channel's latest score, how often each AI engine shows the brand, and which banks the engines name."),
         ("suggestions", "Suggestions", AisoPolicies.CanView, "What to change to be named and cited more often, who owns it, ready-to-paste fixes, and whether the next audits confirm it."),
         ("answers", "Answers", AisoPolicies.CanView, "The answers the AI engines gave to your test questions, with the sources they cited."),
+        ("seo", "SEO", AisoPolicies.CanView, "Technical SEO of each website from its latest crawl: health score, issues by page, sitemap and robots.txt, and which page targets each customer question."),
         ("analytics", "Advanced Analytics", AisoPolicies.CanView, "Trends over time, visibility per engine and language, the most cited domains and every on-page check."),
         ("prompts", "Test Prompts", AisoPolicies.CanEdit, "The customer questions asked to every AI engine on each audit, per channel and language."),
         ("reports", "Reports", AisoPolicies.CanView, "Remediation plans written after each audit, as Markdown checklists you can download."),
