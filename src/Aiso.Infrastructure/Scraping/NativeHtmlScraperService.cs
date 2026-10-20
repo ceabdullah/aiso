@@ -65,13 +65,24 @@ public sealed partial class NativeHtmlScraperService(
     }
 
     /// <summary>Fetches a small text resource (robots.txt, sitemap.xml) with the crawler's identity; null when unavailable.</summary>
-    public async Task<string?> FetchTextAsync(Uri url, CancellationToken cancellationToken)
+    public Task<string?> FetchTextAsync(Uri url, CancellationToken cancellationToken) =>
+        FetchTextAsync(url, options.Value.UserAgent, cancellationToken);
+
+    /// <summary>
+    /// Whether the page carries a viewport tag when a phone asks for it. Some sites send it only to phones
+    /// (dynamic serving), which is fine for Google's smartphone crawler.
+    /// </summary>
+    public async Task<bool> PhonesGetViewportAsync(Uri url, CancellationToken cancellationToken) =>
+        await FetchTextAsync(url, options.Value.MobileUserAgent, cancellationToken) is { } html
+        && Parse(html, TargetChannelKind.DigitalChannel).HasViewport;
+
+    private async Task<string?> FetchTextAsync(Uri url, string userAgent, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(url);
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.TryAddWithoutValidation("User-Agent", options.Value.UserAgent);
+            request.Headers.TryAddWithoutValidation("User-Agent", userAgent);
             using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             return response.IsSuccessStatusCode ? await ReadBoundedAsync(response.Content, options.Value.MaxResponseBytes, cancellationToken) : null;
         }
@@ -145,6 +156,12 @@ public sealed partial class NativeHtmlScraperService(
 
         var h1 = Texts(root, "//h1");
         var h2 = Texts(root, "//h2");
+        // Headings of the page's own content: menus, headers, footers and hidden boxes repeat on every page and say
+        // nothing about it. Many sites build menus from divs, so class and id names count too (subMenuDiv, footer-links).
+        var contentHeadings = Texts(root, $"(//h1|//h2|//h3)[not(ancestor::nav or ancestor::header or ancestor::footer or ancestor::aside"
+                + $" or ancestor::*[@role='navigation' or @hidden or contains({Lower("@style")},'display:none') or contains({Lower("@style")},'display: none')"
+                + $" or {NameHas("menu")} or {NameHas("navbar")} or {NameHas("navigation")} or {NameHas("footer")}])]")
+            .Distinct(StringComparer.Ordinal).Take(30).ToList();
         var h3Count = root.SelectNodes("//h3")?.Count ?? 0;
 
         var jsonLdNodes = JsonLdDocuments(root).ToList();
@@ -182,7 +199,8 @@ public sealed partial class NativeHtmlScraperService(
             ImagesWithAlt: images.Count(i => !string.IsNullOrWhiteSpace(i.Attributes["alt"]?.Value)),
             Storefront: kind == TargetChannelKind.MobileAppStore ? ParseStorefront(jsonLdNodes, Meta) : null,
             HasViewport: hasViewport,
-            HtmlLength: html.Length);
+            HtmlLength: html.Length,
+            ContentHeadings: contentHeadings);
     }
 
     private static StorefrontMetrics ParseStorefront(List<JsonElement> jsonLd, Func<string, string, string?> meta)
@@ -337,6 +355,10 @@ public sealed partial class NativeHtmlScraperService(
 
     private static decimal? ReadDecimal(JsonElement e, string name) =>
         decimal.TryParse(ReadString(e, name), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : null;
+
+    private static string Lower(string attribute) => $"translate({attribute},'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')";
+
+    private static string NameHas(string word) => $"contains({Lower("@class")},'{word}') or contains({Lower("@id")},'{word}')";
 
     private static List<string> Texts(HtmlNode root, string xpath) =>
         (root.SelectNodes(xpath) ?? Enumerable.Empty<HtmlNode>())

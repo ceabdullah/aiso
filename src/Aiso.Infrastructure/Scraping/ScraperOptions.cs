@@ -7,6 +7,10 @@ public sealed class ScraperOptions
     /// <summary>Identify the crawler honestly so target owners can recognise it in their logs.</summary>
     public string UserAgent { get; set; } = "AISO-Audit-Bot/1.0 (+internal visibility audit)";
 
+    /// <summary>A phone browser's user agent, still naming AISO: for sites that serve phones different HTML.</summary>
+    public string MobileUserAgent { get; set; } =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 AISO-Audit-Bot/1.0";
+
     public string AcceptLanguage { get; set; } = "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7";
 
     public int TimeoutSeconds { get; set; } = 30;

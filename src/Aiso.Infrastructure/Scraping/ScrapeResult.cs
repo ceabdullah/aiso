@@ -26,7 +26,8 @@ public sealed record PageMetrics(
     int ImagesWithAlt,
     StorefrontMetrics? Storefront,
     bool HasViewport = true,
-    int HtmlLength = 0);
+    int HtmlLength = 0,
+    IReadOnlyList<string>? ContentHeadings = null);
 
 /// <summary>One weighted on-page signal, kept so the score is explainable in reports.</summary>
 public sealed record ScoreSignal(string Name, decimal Weight, bool Passed, string Detail);
@@ -73,7 +74,8 @@ public sealed record SiteCrawl(
     int BrokenPages,
     IReadOnlyList<SiteCheck> Checks,
     IReadOnlyList<CrawledPage> Pages,
-    SeoAudit? Seo = null);
+    SeoAudit? Seo = null,
+    IReadOnlyList<string>? SitemapUrls = null);
 
 /// <summary>A page an AI engine cited instead of the brand, fetched and checked like the brand's own page.</summary>
 public sealed record CompetitorPage(

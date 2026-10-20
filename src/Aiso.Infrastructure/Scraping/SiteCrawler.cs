@@ -16,6 +16,9 @@ public sealed partial class SiteCrawler(NativeHtmlScraperService scraper, IOptio
         [".pdf", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".zip", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".mp4", ".mp3", ".css", ".js", ".xml", ".json", ".ico"];
 
     private readonly Dictionary<string, RobotsTxt> _robots = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Sitemap URLs kept with the crawl: their paths tell which topics have a page, beyond the pages crawled.</summary>
+    public const int MaxSitemapUrlsKept = 1500;
+
     private readonly HashSet<string> _robotsMissing = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Crawls the site of <paramref name="home"/>, which has already been scraped (it is not fetched again).</summary>
@@ -54,9 +57,18 @@ public sealed partial class SiteCrawler(NativeHtmlScraperService scraper, IOptio
         }
 
         logger.LogInformation("Crawled {Count} page(s) of {Host}; {Skipped} skipped by robots.txt.", pages.Count, start.Host, skipped);
+        // Sites that serve phones their own HTML may leave the viewport out for desktop crawlers: ask once as a phone.
+        var noViewport = pages.FirstOrDefault(SeoChecks.MissesViewport);
+        var phonesGetViewport = false;
+        if (noViewport is not null)
+        {
+            await Task.Delay(options.Value.CrawlDelayMs, ct);
+            phonesGetViewport = await scraper.PhonesGetViewportAsync(new Uri(noViewport.Url), ct);
+        }
+
         var facts = new SeoSiteFacts(!_robotsMissing.Contains(start.GetLeftPart(UriPartial.Authority)), robots.Sitemaps.Count > 0,
-            sitemapUrls.Select(SeoChecks.UrlKey).ToHashSet(StringComparer.Ordinal));
-        return Summarize(pages, skipped, facts);
+            sitemapUrls.Select(SeoChecks.UrlKey).ToHashSet(StringComparer.Ordinal), phonesGetViewport);
+        return Summarize(pages, skipped, facts) with { SitemapUrls = sitemapUrls.Take(MaxSitemapUrlsKept).Select(u => u.ToString()).ToList() };
 
         void Enqueue(Uri url)
         {

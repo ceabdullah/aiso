@@ -53,6 +53,9 @@ public static class DependencyInjection
                 AllowAutoRedirect = true,
                 MaxAutomaticRedirections = 5,
                 AutomaticDecompression = System.Net.DecompressionMethods.All,
+                // Like search crawlers, keep no cookies: a site's session cookie would otherwise decide what later
+                // requests get (e.g. desktop HTML for a phone user agent), and pages would depend on crawl order.
+                UseCookies = false,
             })
             .AddStandardResilienceHandler(o =>
             {

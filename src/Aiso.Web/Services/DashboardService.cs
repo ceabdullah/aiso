@@ -348,7 +348,7 @@ public sealed class DashboardService(
             var site = crawls[0].Site!;
             var topics = t.Prompts.Select(p =>
             {
-                var page = SeoChecks.BestPageFor(p.PromptText, p.LanguageCode, site.Pages);
+                var page = SeoChecks.PageFor(p.PromptText, p.LanguageCode, site.Pages, site.SitemapUrls);
                 return new TopicMatch(p.PromptText, p.LanguageCode, page?.Url, page?.Title);
             }).ToList();
             result.Add(new SeoChannel(t.Id, t.Code, t.DisplayName, t.BaseUrl, crawls[0].CreatedAtUtc, site.Seo!,

@@ -16,11 +16,23 @@ public sealed record SeoIssue(string Key, int Pages, int Total, IReadOnlyList<st
 }
 
 /// <summary>Technical SEO of a crawled site, 0–100 health, with the failed checks most costly first.</summary>
-public sealed record SeoAudit(int PagesChecked, bool RobotsTxtFound, int SitemapUrls, bool SitemapDeclared, decimal Health, IReadOnlyList<SeoIssue> Issues);
+/// <param name="ViewportForPhonesOnly">The site sends the viewport tag only to phones (dynamic serving), so it isn't an issue.</param>
+public sealed record SeoAudit(
+    int PagesChecked,
+    bool RobotsTxtFound,
+    int SitemapUrls,
+    bool SitemapDeclared,
+    decimal Health,
+    IReadOnlyList<SeoIssue> Issues,
+    bool ViewportForPhonesOnly = false);
 
 /// <summary>What the crawl learned about the site beyond its pages.</summary>
 /// <param name="SitemapUrls">The sitemap's URLs, normalised with <see cref="SeoChecks.UrlKey"/>.</param>
-public sealed record SeoSiteFacts(bool RobotsTxtFound, bool SitemapDeclared, IReadOnlySet<string> SitemapUrls);
+/// <param name="PhonesGetViewport">A page without a viewport tag has one when a phone asks for it.</param>
+/// <summary>A page that targets a question: a crawled page (with its title) or a sitemap URL whose address names the topic.</summary>
+public sealed record TopicPage(string Url, string? Title);
+
+public sealed record SeoSiteFacts(bool RobotsTxtFound, bool SitemapDeclared, IReadOnlySet<string> SitemapUrls, bool PhonesGetViewport = false);
 
 /// <summary>
 /// Classic technical SEO checks across a crawled site: things a single page's signals can't show (duplicate titles,
@@ -66,7 +78,7 @@ public static partial class SeoChecks
 
     /// <summary>Not part of the health score: found by matching customer questions to the crawled pages' headings.</summary>
     public static readonly SeoCheck TopicGap = new("topic-gap", "Questions without a page", "Create pages that target the questions customers ask",
-        "No crawled page has these questions' main words in its title or headings, so search engines have no page to rank for them, and AI engines no page of yours to cite.", 0);
+        "No crawled page has these questions' main words in its title or headings, and no sitemap URL in its address, so search engines have no page to rank for them, and AI engines no page of yours to cite.", 0);
 
     private static readonly Dictionary<string, SeoCheck> ByKey = All.Append(TopicGap).ToDictionary(c => c.Key, StringComparer.Ordinal);
 
@@ -111,7 +123,11 @@ public static partial class SeoChecks
 
         Add("broken", pages.Where(p => !p.Success).ToList(), pages.Count,
             p => $"{p.Url} ({p.HttpStatusCode?.ToString(CultureInfo.InvariantCulture) ?? "no answer"})");
-        Add("viewport", ok.Where(p => p.Metrics!.HtmlLength > 0 && !p.Metrics.HasViewport).ToList(), ok.Count);
+        if (!facts.PhonesGetViewport)
+        {
+            Add("viewport", ok.Where(MissesViewport).ToList(), ok.Count);
+        }
+
         Add("noindex-in-sitemap", ok.Where(p => p.Metrics!.IsNoIndex && facts.SitemapUrls.Contains(UrlKey(new Uri(p.Url)))).ToList(), ok.Count);
 
         var (dupTitles, titleNote) = Duplicates(ok, m => m.Title);
@@ -146,12 +162,18 @@ public static partial class SeoChecks
         var lost = found.Sum(i => weights[i.Key] * i.Share);
         var health = pages.Count == 0 ? 0 : Math.Round(100m * (1 - lost / All.Sum(c => c.Weight)), 1);
         var ordered = found.OrderByDescending(i => weights[i.Key] * i.Share).ThenBy(i => i.Key, StringComparer.Ordinal).ToList();
-        return (new SeoAudit(ok.Count, facts.RobotsTxtFound, facts.SitemapUrls.Count, facts.SitemapDeclared, health, ordered), issuesByPage);
+        return (new SeoAudit(ok.Count, facts.RobotsTxtFound, facts.SitemapUrls.Count, facts.SitemapDeclared, health, ordered,
+            facts.PhonesGetViewport && ok.Any(MissesViewport)), issuesByPage);
     }
 
-    /// <summary>"Title · H1 · H2s" of a page: what it targets.</summary>
+    /// <summary>A page fetched with the desktop user agent that has no viewport tag (pages from old audits have no HTML length).</summary>
+    public static bool MissesViewport(ScrapeResult page) =>
+        page?.Metrics is { HtmlLength: > 0, HasViewport: false };
+
+    /// <summary>"Title · content headings" of a page: what it targets (menu and footer headings left out).</summary>
     public static string? Topics(PageMetrics? m) =>
-        m is null ? null : string.Join(" · ", new[] { m.Title }.Concat(m.Headings.H1Texts).Concat(m.Headings.H2Texts).OfType<string>());
+        m is null ? null
+            : string.Join(" · ", new[] { m.Title }.Concat(m.ContentHeadings ?? [.. m.Headings.H1Texts, .. m.Headings.H2Texts]).OfType<string>());
 
     private static (List<ScrapeResult> Pages, string? Note) Duplicates(List<ScrapeResult> pages, Func<PageMetrics, string?> field)
     {
@@ -209,27 +231,35 @@ public static partial class SeoChecks
     }
 
     /// <summary>
-    /// The page whose title or headings contain most (60%+) of the question's keywords. Two words match when they share
-    /// a prefix of at least 4 letters that leaves at most 2 letters of the shorter one, a rough stem that copes with
-    /// Turkish suffixes (kartı ~ kartları, kredi ~ kredisi).
+    /// The page that best targets a question: the crawled page whose title and content headings, or else the sitemap URL
+    /// whose address, shares the most of the question's keywords. A match needs at least two keywords (one for a
+    /// one-keyword question) and a quarter of them, since customer questions carry generic words (bankalar, dijital).
+    /// Words are compared without Turkish diacritics (URLs have none) and by a shared stem, which copes with suffixes
+    /// (kartı ~ kartları, mevduatta ~ mevduat).
     /// </summary>
-    public static CrawledPage? BestPageFor(string question, string languageCode, IReadOnlyList<CrawledPage> pages)
+    public static TopicPage? PageFor(string question, string languageCode, IReadOnlyList<CrawledPage> pages, IReadOnlyList<string>? sitemapUrls = null)
     {
         ArgumentNullException.ThrowIfNull(pages);
-        var keywords = Keywords(question, languageCode);
+        var keywords = Keywords(question, languageCode).Select(Fold).Distinct(StringComparer.Ordinal).ToList();
         if (keywords.Count == 0)
         {
             return null;
         }
 
         var culture = CultureFor(languageCode);
-        return pages
-            .Where(p => !string.IsNullOrWhiteSpace(p.Topics))
-            .Select(p => (Page: p, Words: WordRegex().Matches(p.Topics!).Select(m => m.Value.ToLower(culture)).Distinct(StringComparer.Ordinal).ToList()))
-            .Select(x => (x.Page, Hits: keywords.Count(k => x.Words.Any(w => SameStem(k, w)))))
-            .Where(x => x.Hits * 10 >= keywords.Count * 6)
-            .OrderByDescending(x => x.Hits)
-            .Select(x => x.Page)
+        var need = Math.Min(keywords.Count, Math.Max(2, (keywords.Count + 3) / 4));
+        var crawled = pages.Where(p => !string.IsNullOrWhiteSpace(p.Topics))
+            .Select(p => (Page: new TopicPage(p.Url, p.Title), Text: p.Topics!.ToLower(culture), Rank: 0));
+        var seen = pages.Select(p => p.Url).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var listed = (sitemapUrls ?? []).Where(u => !seen.Contains(u))
+            .Select(u => (Page: new TopicPage(u, null), Text: Uri.TryCreate(u, UriKind.Absolute, out var uri) ? Uri.UnescapeDataString(uri.AbsolutePath).ToLowerInvariant() : string.Empty, Rank: 1));
+
+        return crawled.Concat(listed)
+            .Select(c => (c.Page, c.Rank, Words: WordRegex().Matches(c.Text).Select(m => Fold(m.Value)).Distinct(StringComparer.Ordinal).ToList()))
+            .Select(c => (c.Page, c.Rank, Hits: keywords.Count(k => c.Words.Any(w => SameStem(k, w)))))
+            .Where(c => c.Hits >= need)
+            .OrderByDescending(c => c.Hits).ThenBy(c => c.Rank).ThenBy(c => c.Page.Url.Length)
+            .Select(c => c.Page)
             .FirstOrDefault();
     }
 
@@ -242,6 +272,22 @@ public static partial class SeoChecks
         }
 
         return common >= Math.Max(4, Math.Min(a.Length, b.Length) - 2);
+    }
+
+    /// <summary>Turkish letters to their plain forms, as in URLs: şubeye → subeye.</summary>
+    private static string Fold(string word)
+    {
+        var chars = word.ToCharArray();
+        for (var i = 0; i < chars.Length; i++)
+        {
+            chars[i] = chars[i] switch
+            {
+                'ş' => 's', 'ı' => 'i', 'ğ' => 'g', 'ü' => 'u', 'ö' => 'o', 'ç' => 'c', 'â' => 'a', 'î' => 'i', 'û' => 'u',
+                var c => c,
+            };
+        }
+
+        return new string(chars);
     }
 
     private static CultureInfo CultureFor(string languageCode) =>

@@ -80,6 +80,17 @@ public sealed class SeoTests
     }
 
     [Fact]
+    public void A_viewport_sent_only_to_phones_is_not_an_issue()
+    {
+        var (audit, pageIssues) = SeoChecks.Audit(Site, Facts() with { PhonesGetViewport = true });
+
+        Assert.DoesNotContain(audit.Issues, i => i.Key == "viewport");
+        Assert.True(audit.ViewportForPhonesOnly);
+        Assert.DoesNotContain("viewport", pageIssues["https://www.teb.com.tr/kartlar/kredi-kartlari"]);
+        Assert.False(SeoChecks.Audit(Site, Facts()).Audit.ViewportForPhonesOnly);
+    }
+
+    [Fact]
     public void Summarize_carries_the_audit_and_each_pages_topics()
     {
         var crawl = SiteCrawler.Summarize(Site, 0, Facts());
@@ -87,6 +98,7 @@ public sealed class SeoTests
         Assert.NotNull(crawl.Seo);
         var cards = crawl.Pages.Single(p => p.Url.EndsWith("kredi-kartlari", StringComparison.Ordinal));
         Assert.Equal("TEB · Aidatsız Kredi Kartları · Kart avantajları", cards.Topics);
+        Assert.Null(crawl.SitemapUrls); // kept by CrawlAsync, which reads the sitemap
         Assert.Contains("breadcrumbs", cards.SeoIssues!);
         Assert.Null(SiteCrawler.Summarize(Site, 0).Seo); // no site facts, no audit
     }
@@ -98,7 +110,23 @@ public sealed class SeoTests
     public void Questions_match_pages_by_headings_with_turkish_suffixes(string question, bool covered)
     {
         var pages = SiteCrawler.Summarize(Site, 0, Facts()).Pages;
-        Assert.Equal(covered, SeoChecks.BestPageFor(question, "tr-TR", pages) is not null);
+        Assert.Equal(covered, SeoChecks.PageFor(question, "tr-TR", pages) is not null);
+    }
+
+    [Fact]
+    public void Sitemap_addresses_count_as_pages_and_menu_headings_do_not()
+    {
+        var withMenu = Page("https://www.teb.com.tr/hakkimizda", $"<title>TEB Hakkında</title>{Viewport}",
+            "<nav><h2>Vadeli Mevduat</h2><h2>Krediler</h2></nav><div class=\"subMenuDiv\"><h2>Mevduat ve Yatırım</h2></div>"
+            + "<div style=\"display:none\"><h2>İşleminiz Devam Ediyor...</h2></div><h1>Kısaca TEB</h1><footer><h3>Vadeli Mevduat Hesabı</h3></footer>");
+        Assert.Equal(new[] { "Kısaca TEB" }, withMenu.Metrics!.ContentHeadings);
+        var pages = SiteCrawler.Summarize([withMenu], 0, Facts()).Pages;
+        const string Question = "Vadeli mevduatta en yüksek faizi veren dijital bankalar hangileri?";
+        Assert.Null(SeoChecks.PageFor(Question, "tr-TR", pages));
+
+        string[] sitemap = ["https://www.cepteteb.com.tr/urunler/mevduat/vadeli-mevduat-hesabi", "https://www.cepteteb.com.tr/cepteteb-iste/subeye-gitmeden-musteri-ol"];
+        Assert.Equal(new TopicPage(sitemap[0], null), SeoChecks.PageFor(Question, "tr-TR", pages, sitemap));
+        Assert.Equal(sitemap[1], SeoChecks.PageFor("Şubeye gitmeden tamamen dijital hesap açabileceğim bankalar hangileri?", "tr-TR", pages, sitemap)?.Url);
     }
 
     [Fact]

@@ -290,13 +290,13 @@ public static class VisibilityAdvisor
             yield break;
         }
 
-        var uncovered = questions.Where(q => SeoChecks.BestPageFor(q.Text, q.LanguageCode, site.Pages) is null).ToList();
+        var uncovered = questions.Where(q => SeoChecks.PageFor(q.Text, q.LanguageCode, site.Pages, site.SitemapUrls) is null).ToList();
         if (uncovered.Count > 0)
         {
             yield return new Suggestion("seo:topic-gap", SeoChecks.TopicGap.Title, SeoChecks.TopicGap.Why,
                 uncovered.Count * 2 >= questions.Count ? SuggestionPriority.High : SuggestionPriority.Medium, "seo", [],
                 string.Create(CultureInfo.InvariantCulture, $"{uncovered.Count} of {questions.Count} questions: ") + string.Join(" · ", uncovered.Select(q => $"“{q.Text}”")),
-                SuggestionStatus.ToDo, string.Create(CultureInfo.InvariantCulture, $"Checked against the {site.Pages.Count} crawled pages."), []);
+                SuggestionStatus.ToDo, string.Create(CultureInfo.InvariantCulture, $"Checked against the {site.Pages.Count} crawled pages and {site.SitemapUrls?.Count ?? 0} sitemap URLs."), []);
         }
     }
 
