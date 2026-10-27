@@ -110,6 +110,36 @@ public sealed class PlannerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_retired_model_falls_back_to_the_next_one()
+    {
+        var models = new List<string>();
+        var http = new StubHttpFactory(request =>
+        {
+            var model = JsonNode.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult())!["model"]!.GetValue<string>();
+            models.Add(model);
+            return model == "nvidia/retired"
+                ? new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("""{"status":404,"title":"Not Found"}""") }
+                : new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"c","choices":[{"message":{"content":"{\"summary\":\"ok\",\"items\":[]}"}}]}""", Encoding.UTF8, "application/json"),
+                };
+        });
+        var options = new PlannerOptions { Provider = "OpenAiCompatible", Model = "nvidia/retired", FallbackModels = ["openai/gpt-oss-20b", "never/used"] };
+        var planner = new ChatModelPlanner(Options.Create(options), ConfigurationOnlyEngineSettingsStore.Instance, Probe(Engines("nvapi-1")), http, NullLogger<ChatModelPlanner>.Instance);
+
+        var result = await planner.RunAsync("Analyze.", [], TestContext.Current.CancellationToken);
+
+        Assert.True(result.Success, result.StandardError);
+        Assert.Equal(["nvidia/retired", "openai/gpt-oss-20b"], models);
+
+        var none = new ChatModelPlanner(Options.Create(new PlannerOptions { Provider = "OpenAiCompatible", Model = "nvidia/retired" }), ConfigurationOnlyEngineSettingsStore.Instance,
+            Probe(Engines("nvapi-1")), http, NullLogger<ChatModelPlanner>.Instance);
+        var failed = await none.RunAsync("Analyze.", [], TestContext.Current.CancellationToken);
+        Assert.False(failed.Success);
+        Assert.Contains("nvidia/retired is not available (HTTP 404)", failed.StandardError, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Without_an_nvidia_key_the_plan_fails_with_a_clear_message()
     {
         var planner = new ChatModelPlanner(Options.Create(new PlannerOptions { Provider = "OpenAiCompatible" }), ConfigurationOnlyEngineSettingsStore.Instance,

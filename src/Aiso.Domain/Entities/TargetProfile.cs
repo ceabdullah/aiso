@@ -36,6 +36,8 @@ public class TargetProfile : EntityBase
     public ICollection<LiveSearchAuditLog> AuditLogs { get; } = [];
     public ICollection<AisoRemediationPlan> RemediationPlans { get; } = [];
 
+    public ICollection<ContentItem> ContentItems { get; } = [];
+
     public IReadOnlyList<string> GetOwnedDomains() =>
         (OwnedDomains ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 

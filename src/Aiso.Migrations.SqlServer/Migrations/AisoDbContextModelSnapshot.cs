@@ -253,6 +253,132 @@ namespace Aiso.Migrations.SqlServer.Migrations
                     b.ToTable("AISO_TEST_PROMPT", (string)null);
                 });
 
+            modelBuilder.Entity("Aiso.Domain.Entities.ContentItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("ID");
+
+                    b.Property<string>("ApprovedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)")
+                        .HasColumnName("APPROVED_BY");
+
+                    b.Property<DateTime?>("CitedAtUtc")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("CITED_AT_UTC");
+
+                    b.Property<string>("CitedBy")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)")
+                        .HasColumnName("CITED_BY");
+
+                    b.Property<Guid>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("CONCURRENCY_STAMP");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("CREATED_AT_UTC");
+
+                    b.Property<string>("Draft")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("DRAFT")
+                        .HasAnnotation("Aiso:LargeText", true);
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("ERROR");
+
+                    b.Property<string>("ImagePrompt")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("IMAGE_PROMPT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasColumnName("KIND");
+
+                    b.Property<string>("LanguageCode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasColumnName("LANGUAGE_CODE");
+
+                    b.Property<DateTime?>("LiveCheckedAtUtc")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("LIVE_CHECKED_AT_UTC");
+
+                    b.Property<string>("LiveNote")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)")
+                        .HasColumnName("LIVE_NOTE");
+
+                    b.Property<string>("LiveUrl")
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)")
+                        .HasColumnName("LIVE_URL");
+
+                    b.Property<string>("Platform")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("PLATFORM");
+
+                    b.Property<string>("Question")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("QUESTION");
+
+                    b.Property<string>("Rationale")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("RATIONALE");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("SOURCE");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasColumnName("STATUS");
+
+                    b.Property<Guid>("TargetProfileId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("TARGET_PROFILE_ID");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)")
+                        .HasColumnName("TITLE");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("UPDATED_AT_UTC");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)")
+                        .HasColumnName("UPDATED_BY");
+
+                    b.HasKey("Id")
+                        .HasName("PK_AISO_CONTENT_ITEM");
+
+                    b.HasIndex("TargetProfileId", "Status")
+                        .HasDatabaseName("IX_CONTENT_ITEM_TARGET__465BA6");
+
+                    b.ToTable("AISO_CONTENT_ITEM", (string)null);
+                });
+
             modelBuilder.Entity("Aiso.Domain.Entities.EngineProbeResult", b =>
                 {
                     b.Property<Guid>("Id")
@@ -649,6 +775,18 @@ namespace Aiso.Migrations.SqlServer.Migrations
                     b.Navigation("TargetProfile");
                 });
 
+            modelBuilder.Entity("Aiso.Domain.Entities.ContentItem", b =>
+                {
+                    b.HasOne("Aiso.Domain.Entities.TargetProfile", "TargetProfile")
+                        .WithMany("ContentItems")
+                        .HasForeignKey("TargetProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_CONTENT_ITEM_TARGET_PROFILE");
+
+                    b.Navigation("TargetProfile");
+                });
+
             modelBuilder.Entity("Aiso.Domain.Entities.EngineProbeResult", b =>
                 {
                     b.HasOne("Aiso.Domain.Entities.LiveSearchAuditLog", "AuditLog")
@@ -681,6 +819,8 @@ namespace Aiso.Migrations.SqlServer.Migrations
             modelBuilder.Entity("Aiso.Domain.Entities.TargetProfile", b =>
                 {
                     b.Navigation("AuditLogs");
+
+                    b.Navigation("ContentItems");
 
                     b.Navigation("RemediationPlans");
 

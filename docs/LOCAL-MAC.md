@@ -53,7 +53,7 @@ More NVIDIA-hosted models (GPT-OSS, DeepSeek, GLM, Kimi) are configured the same
 one key in the NVIDIA card switches them all on.
 
 **Remediation plans on a Mac:** the corporate gateway isn't reachable, so plans are written by a chat model on NVIDIA
-instead of `claude.exe` (`Aiso:Planner:Provider = OpenAiCompatible`, model `nvidia/nemotron-3-super-120b-a12b`). It uses the
+instead of `claude.exe` (`Aiso:Planner:Provider = OpenAiCompatible`, model `openai/gpt-oss-120b`, falling back to `nvidia/nemotron-3.5-lightning-30b-a3b` and `openai/gpt-oss-20b` when NVIDIA retires a model). It uses the
 NVIDIA key and gets the run's data files in its prompt. The Windows server keeps `claude.exe`.
 
 ## What differs from the Windows server

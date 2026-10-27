@@ -25,5 +25,7 @@ internal sealed class TargetProfileConfiguration : IEntityTypeConfiguration<Targ
             .HasForeignKey(a => a.TargetProfileId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(t => t.RemediationPlans).WithOne(r => r.TargetProfile)
             .HasForeignKey(r => r.TargetProfileId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(t => t.ContentItems).WithOne(c => c.TargetProfile)
+            .HasForeignKey(c => c.TargetProfileId).OnDelete(DeleteBehavior.Cascade);
     }
 }

@@ -1,0 +1,369 @@
+@using Aiso.Infrastructure.Content
+@implements IDisposable
+@inject ContentBoardService Board
+@inject IJSRuntime JS
+
+<div class="loop" role="group" aria-label="Content loop stages">
+    @foreach (var (status, label, tip) in Stages)
+    {
+        <button type="button" class="loop-step @(_status == status ? "on" : null)" aria-pressed="@(_status == status)" data-tip="@tip"
+                @onclick="() => _status = _status == status ? null : status">
+            <span class="loop-count">@Count(status)</span>
+            <span class="loop-label">@label</span>
+        </button>
+    }
+</div>
+
+<div class="toolbar">
+    <AuthorizeView Policy="@AisoPolicies.CanEdit">
+        <button class="btn btn-primary" disabled="@_busy" @onclick="FindIdeasAsync"
+                data-tip="Looks at each channel's latest audit and proposes pages, posts and App Store text for the questions where the brand is missing or no page answers. No AI is used for this step.">
+            <Icon Name="suggestions" /> Find content ideas
+        </button>
+    </AuthorizeView>
+    <div class="filters" role="group" aria-label="Content type">
+        @foreach (var (kind, label) in Kinds)
+        {
+            <button type="button" class="pill @(_kind == kind ? "on" : null)" aria-pressed="@(_kind == kind)" @onclick="() => _kind = kind">@label</button>
+        }
+    </div>
+    <span class="spacer"></span>
+    <label class="check small"><input type="checkbox" @bind="_showDismissed" /> show dismissed</label>
+    <Info Text="AISO proposes and the AI writes; people review, approve and publish. Once you paste the live link, AISO checks the page is public and indexable, then watches later audits for AI engines citing it." />
+</div>
+
+@if (_message is not null)
+{
+    <div class="alert @(_isError ? "alert-error" : null)">@_message</div>
+}
+
+@if (_items is null)
+{
+    <Skeleton Rows="4" />
+    return;
+}
+
+@{ var visible = Visible().ToList(); }
+@if (visible.Count == 0)
+{
+    <div class="panel feed-empty">
+        @if (_items.Count == 0)
+        {
+            <p><strong>No content yet.</strong></p>
+            <p class="muted">Use “Find content ideas” to propose content from the latest audits.</p>
+        }
+        else
+        {
+            <p class="muted">Nothing matches these filters.</p>
+        }
+    </div>
+}
+
+<ol class="feed content-feed">
+    @foreach (var c in visible)
+    {
+        <li @key="c.Id" class="post content-card status-@c.Status.ToString().ToLowerInvariant()">
+            <div class="post-body">
+                <div class="post-meta">
+                    <span class="tag kind-@c.Kind.ToString().ToLowerInvariant()">@KindLabel(c)</span>
+                    <strong>@c.Channel</strong>
+                    <span class="muted small">· <span class="mono">@c.LanguageCode</span> · updated @Ago(c.UpdatedAtUtc)</span>
+                    <span class="spacer"></span>
+                    <span class="chip @StatusChip(c.Status)" data-tip="@StageTip(c.Status)">@StageLabel(c.Status)</span>
+                </div>
+                <h3 class="post-title">@c.Title</h3>
+                @if (c.Rationale is not null)
+                {
+                    <p class="post-text small">@c.Rationale</p>
+                }
+                @if (c.Error is not null)
+                {
+                    <p class="alert alert-error small">@c.Error</p>
+                }
+
+                @switch (c.Status)
+                {
+                    case ContentStatus.Idea:
+                        <AuthorizeView Policy="@AisoPolicies.CanEdit" Context="auth">
+                            <div class="post-actions">
+                                <button class="btn btn-primary btn-sm" @onclick="() => DoAsync(() => Board.RequestDraftAsync(c.Id, _user))">Write draft with AI</button>
+                                <button class="btn btn-ghost btn-sm" @onclick="() => DoAsync(() => Board.DismissAsync(c.Id, _user))">Dismiss</button>
+                            </div>
+                        </AuthorizeView>
+                        break;
+
+                    case ContentStatus.Drafting:
+                        <p class="post-status small"><span class="live-dot" aria-hidden="true"></span> The AI is writing the draft; this takes a minute or two.</p>
+                        break;
+
+                    case ContentStatus.InReview:
+                        <div class="draft-edit">
+                            <label class="field-label" for="@($"d-{c.Id}")">Draft <span class="muted">· edit freely; fill every [placeholder] with checked facts</span></label>
+                            <textarea id="@($"d-{c.Id}")" class="input draft-text" rows="14" @bind="_drafts[c.Id]"></textarea>
+                            @if (c.Kind == ContentKind.SocialPost)
+                            {
+                                <label class="field-label" for="@($"i-{c.Id}")">Image idea</label>
+                                <textarea id="@($"i-{c.Id}")" class="input" rows="3" @bind="_images[c.Id]"></textarea>
+                            }
+                        </div>
+                        <AuthorizeView Policy="@AisoPolicies.CanEdit" Context="auth">
+                            <div class="post-actions">
+                                <button class="btn btn-primary btn-sm" @onclick="() => DoAsync(() => Board.ApproveAsync(c.Id, _drafts[c.Id], _images.GetValueOrDefault(c.Id), _user))"
+                                        data-tip="Approve for publishing. Check facts, figures and legal wording first: the AI leaves them as [placeholders].">Approve</button>
+                                <button class="btn btn-ghost btn-sm" @onclick="() => DoAsync(() => Board.SaveDraftAsync(c.Id, _drafts[c.Id], _images.GetValueOrDefault(c.Id), _user))">Save edits</button>
+                                <button class="btn btn-ghost btn-sm" @onclick="() => DoAsync(() => Board.RequestDraftAsync(c.Id, _user))">Rewrite with AI</button>
+                                <button class="btn btn-ghost btn-sm" @onclick="() => CopyAsync(c.Id, _drafts[c.Id])">@CopyLabel(c.Id)</button>
+                                <button class="btn btn-ghost btn-sm" @onclick="() => DoAsync(() => Board.DismissAsync(c.Id, _user))">Dismiss</button>
+                            </div>
+                        </AuthorizeView>
+                        break;
+
+                    case ContentStatus.Approved:
+                        <details class="post-tips">
+                            <summary class="small">Approved by @(c.ApprovedBy ?? "—"): show the text</summary>
+                            <pre class="kit-code">@c.Draft</pre>
+                            @if (c.ImagePrompt is not null)
+                            {
+                                <p class="small"><strong>Image idea:</strong> @c.ImagePrompt</p>
+                            }
+                        </details>
+                        <div class="post-actions">
+                            <button class="btn btn-ghost btn-sm" @onclick="() => CopyAsync(c.Id, c.Draft ?? string.Empty)">@CopyLabel(c.Id)</button>
+                            <a class="btn btn-ghost btn-sm" download="@FileName(c)" href="@DataUri(c.Draft ?? string.Empty)">Download</a>
+                        </div>
+                        <AuthorizeView Policy="@AisoPolicies.CanEdit" Context="auth">
+                            <div class="publish-row">
+                                <input class="input input-sm" type="url" placeholder="@UrlHint(c)" @bind="_urls[c.Id]" aria-label="Live address" />
+                                <button class="btn btn-primary btn-sm" @onclick="() => DoAsync(() => Board.MarkPublishedAsync(c.Id, _urls.GetValueOrDefault(c.Id) ?? string.Empty, _user))"
+                                        data-tip="After your team has published it, paste the live address here. AISO checks it within a minute.">Mark as published</button>
+                                <button class="btn btn-ghost btn-sm" @onclick="() => DoAsync(() => Board.ReopenAsync(c.Id, _user))">Back to review</button>
+                            </div>
+                        </AuthorizeView>
+                        break;
+
+                    default:
+                        @if (c.LiveUrl is not null)
+                        {
+                            <p class="small"><Icon Name="external" Size="12" /> <a href="@c.LiveUrl" target="_blank" rel="noopener">@c.LiveUrl</a></p>
+                        }
+                        @if (c.Status == ContentStatus.Published)
+                        {
+                            <p class="post-status small"><span class="live-dot" aria-hidden="true"></span> @(c.LiveNote is null ? "AISO is checking the live page…" : $"Last check: {c.LiveNote} AISO tries again every 30 minutes.")</p>
+                        }
+                        else if (c.Status == ContentStatus.Live)
+                        {
+                            <p class="post-status small"><Icon Name="check" Size="12" /> @c.LiveNote</p>
+                            <p class="muted small">Waiting for an AI engine to cite it: the next audits check every answer's sources. Engines re-crawl on their own schedule, so this can take days to weeks.</p>
+                        }
+                        else if (c.Status == ContentStatus.Cited)
+                        {
+                            <p class="post-status small ok-text"><Icon Name="check" Size="12" /> Cited by @c.CitedBy on @c.CitedAtUtc?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture). The loop is closed.</p>
+                        }
+                        <AuthorizeView Policy="@AisoPolicies.CanEdit" Context="auth">
+                            <div class="post-actions">
+                                @if (c.Status == ContentStatus.Dismissed)
+                                {
+                                    <button class="btn btn-ghost btn-sm" @onclick="() => DoAsync(() => Board.RestoreAsync(c.Id, _user))">Restore</button>
+                                }
+                                else if (c.Status is ContentStatus.Published or ContentStatus.Live)
+                                {
+                                    <input class="input input-sm" type="url" placeholder="Corrected address" @bind="_urls[c.Id]" aria-label="Corrected live address" />
+                                    <button class="btn btn-ghost btn-sm" @onclick="() => DoAsync(() => Board.MarkPublishedAsync(c.Id, _urls.GetValueOrDefault(c.Id) ?? string.Empty, _user))">Update link</button>
+                                    <button class="btn btn-ghost btn-sm" @onclick="() => DoAsync(() => Board.ReopenAsync(c.Id, _user))"
+                                            data-tip="Takes it back to review and clears the saved link, e.g. when the page was taken down or the wrong address was saved.">Back to review</button>
+                                }
+                            </div>
+                        </AuthorizeView>
+                        break;
+                }
+                <p class="post-evidence muted small">Question: “@c.Question”</p>
+            </div>
+        </li>
+    }
+</ol>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private static readonly (ContentStatus Status, string Label, string Tip)[] Stages =
+    [
+        (ContentStatus.Idea, "Ideas", "Proposed from the latest audits: questions where the brand is missing or no page answers."),
+        (ContentStatus.Drafting, "Writing", "The AI model on the worker is writing the draft."),
+        (ContentStatus.InReview, "In review", "Drafted by the AI; a person edits it and fills the [placeholders] with checked facts."),
+        (ContentStatus.Approved, "Approved", "Ready for the owning team to publish on the site, the social account or App Store Connect."),
+        (ContentStatus.Published, "Published", "The live link is saved; AISO checks the page is public and indexable."),
+        (ContentStatus.Live, "Live", "Checked live; AISO watches the next audits for AI engines citing it."),
+        (ContentStatus.Cited, "Cited", "An AI engine cited the published page in an answer: the loop is closed."),
+    ];
+
+    private static readonly (ContentKind? Kind, string Label)[] Kinds =
+        [(null, "All"), (ContentKind.Article, "Web pages"), (ContentKind.SocialPost, "Social posts"), (ContentKind.AppStoreText, "App Store")];
+
+    private IReadOnlyList<ContentCard>? _items;
+    private readonly Dictionary<Guid, string> _drafts = [];
+    private readonly Dictionary<Guid, string> _images = [];
+    private readonly Dictionary<Guid, string> _urls = [];
+    private readonly CancellationTokenSource _cts = new();
+    private ContentStatus? _status;
+    private ContentKind? _kind;
+    private bool _showDismissed;
+    private bool _busy;
+    private string? _user;
+    private string? _message;
+    private bool _isError;
+    private Guid? _copied;
+    private bool _copyFailed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _user = (await AuthState).User.Identity?.Name;
+        await LoadAsync();
+        _ = PollAsync();
+    }
+
+    private async Task PollAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(8));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadAsync();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Component disposed.
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _items = await Board.GetBoardAsync(_cts.Token);
+        foreach (var c in _items)
+        {
+            // Keep what people are typing; take the stored text for items not being edited.
+            if (c.Status != ContentStatus.InReview)
+            {
+                _drafts.Remove(c.Id);
+                _images.Remove(c.Id);
+            }
+            else
+            {
+                _drafts.TryAdd(c.Id, c.Draft ?? string.Empty);
+                _images.TryAdd(c.Id, c.ImagePrompt ?? string.Empty);
+            }
+
+            _urls.TryAdd(c.Id, c.LiveUrl ?? string.Empty);
+        }
+    }
+
+    private IEnumerable<ContentCard> Visible() => _items!
+        .Where(c => _status is null ? _showDismissed || c.Status != ContentStatus.Dismissed : c.Status == _status)
+        .Where(c => _kind is null || c.Kind == _kind)
+        .OrderBy(c => Array.FindIndex(Stages, s => s.Status == c.Status) is var i and >= 0 ? i : 99)
+        .ThenByDescending(c => c.UpdatedAtUtc);
+
+    private int Count(ContentStatus status) => _items?.Count(c => c.Status == status && (_kind is null || c.Kind == _kind)) ?? 0;
+
+    private async Task FindIdeasAsync()
+    {
+        _busy = true;
+        try
+        {
+            var added = await Board.FindIdeasAsync(_user, _cts.Token);
+            (_message, _isError) = (added == 0 ? "No new ideas: every finding already has a content item." : $"{added} new idea(s) added from the latest audits.", false);
+            _status = ContentStatus.Idea;
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DoAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+            _message = null;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            (_message, _isError) = (ex.Message, true);
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task CopyAsync(Guid id, string text)
+    {
+        try
+        {
+            _copyFailed = !await JS.InvokeAsync<bool>("aisoClipboard.copy", text);
+        }
+        catch (JSException)
+        {
+            _copyFailed = true;
+        }
+
+        _copied = id;
+    }
+
+    private string CopyLabel(Guid id) => _copied != id ? "Copy" : _copyFailed ? "Copy blocked: use Download" : "Copied ✓";
+
+    private static string KindLabel(ContentCard c) => c.Kind switch
+    {
+        ContentKind.SocialPost => $"{c.Platform ?? ContentLoop.DefaultPlatform} post",
+        ContentKind.AppStoreText => "App Store text",
+        _ => "Web page",
+    };
+
+    private static string StageLabel(ContentStatus s) => s == ContentStatus.Dismissed ? "Dismissed" : Stages.First(x => x.Status == s).Label;
+
+    private static string StageTip(ContentStatus s) => s == ContentStatus.Dismissed ? "Not pursued. Restore it to bring it back." : Stages.First(x => x.Status == s).Tip;
+
+    private static string StatusChip(ContentStatus s) => s switch
+    {
+        ContentStatus.Cited or ContentStatus.Live => "chip-ok",
+        ContentStatus.Approved or ContentStatus.Published => "chip-new",
+        ContentStatus.InReview or ContentStatus.Drafting => "chip-warn",
+        _ => string.Empty,
+    };
+
+    private static string UrlHint(ContentCard c) => c.Kind switch
+    {
+        ContentKind.SocialPost => "https://www.linkedin.com/posts/…",
+        ContentKind.AppStoreText => "https://apps.apple.com/tr/app/…",
+        _ => "https://www.cepteteb.com.tr/…",
+    };
+
+    private static string FileName(ContentCard c) => c.Kind switch
+    {
+        ContentKind.SocialPost => "social-post.md",
+        ContentKind.AppStoreText => "app-store-text.md",
+        _ => "web-page.md",
+    };
+
+    private static string DataUri(string content) => "data:text/plain;charset=utf-8," + Uri.EscapeDataString(content);
+
+    private static string Ago(DateTime utc)
+    {
+        var span = DateTime.UtcNow - utc;
+        return span.TotalSeconds < 45 ? "just now"
+            : span.TotalMinutes < 60 ? $"{(int)span.TotalMinutes} min ago"
+            : span.TotalHours < 24 ? $"{(int)span.TotalHours} h ago"
+            : $"{(int)span.TotalDays} days ago";
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

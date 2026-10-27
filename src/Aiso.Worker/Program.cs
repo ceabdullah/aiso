@@ -1,4 +1,5 @@
 using Aiso.Infrastructure;
+using Aiso.Worker.Content;
 using Aiso.Worker.Maintenance;
 using Aiso.Worker.Pipeline;
 
@@ -13,6 +14,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<AuditPipelineService>();
 builder.Services.AddHostedService<AuditPipelineWorker>();
 builder.Services.AddHostedService<WeeklyLogCleanUpWorker>();
+builder.Services.AddHostedService<ContentWorker>();
 
 var host = builder.Build();
 await host.RunAsync();

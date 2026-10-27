@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -43,44 +44,59 @@ public sealed partial class ChatModelPlanner(
             return Failed($"The planner uses the API key of engine '{options.Engine}', which has none. Add it in AI Engines.", sw.Elapsed);
         }
 
-        using var request = BuildRequest(engine, options, await BuildPromptAsync(prompt, contextFiles, options.MaxFileChars, cancellationToken));
+        var fullPrompt = await BuildPromptAsync(prompt, contextFiles, options.MaxFileChars, cancellationToken);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds));
+        var http = httpClientFactory.CreateClient(JsonEngineClientBase.HttpClientName);
+        var errors = new List<string>();
 
-        try
+        foreach (var model in options.Models)
         {
-            var http = httpClientFactory.CreateClient(JsonEngineClientBase.HttpClientName);
-            using var response = await http.SendAsync(request, timeout.Token);
-            var body = await response.Content.ReadAsStringAsync(timeout.Token);
-            if (!response.IsSuccessStatusCode)
+            try
             {
-                return Failed($"{options.Model} returned HTTP {(int)response.StatusCode}: {body[..Math.Min(body.Length, 500)]}", sw.Elapsed);
-            }
+                using var request = BuildRequest(engine, options, fullPrompt, model);
+                using var response = await http.SendAsync(request, timeout.Token);
+                var body = await response.Content.ReadAsStringAsync(timeout.Token);
+                if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
+                {
+                    logger.LogWarning("Planner model {Model} is not available (HTTP {Status}); trying the next one.", model, (int)response.StatusCode);
+                    errors.Add($"{model} is not available (HTTP {(int)response.StatusCode})");
+                    continue;
+                }
 
-            using var json = JsonDocument.Parse(body);
-            var text = CleanAnswer(ReadContent(json.RootElement));
-            var id = json.RootElement.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
-            logger.LogInformation("Planner {Model} answered in {Seconds:0.0}s ({Chars} chars).", options.Model, sw.Elapsed.TotalSeconds, text.Length);
-            return new ClaudeCliResult(text.Length > 0, 0, text, id, 1, null, text.Length > 0 ? string.Empty : "Empty answer.", sw.Elapsed, 1);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return Failed($"{model} returned HTTP {(int)response.StatusCode}: {body[..Math.Min(body.Length, 500)]}", sw.Elapsed);
+                }
+
+                using var json = JsonDocument.Parse(body);
+                var text = CleanAnswer(ReadContent(json.RootElement));
+                var id = json.RootElement.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
+                logger.LogInformation("Planner {Model} answered in {Seconds:0.0}s ({Chars} chars).", model, sw.Elapsed.TotalSeconds, text.Length);
+                return new ClaudeCliResult(text.Length > 0, 0, text, id, 1, null, text.Length > 0 ? string.Empty : "Empty answer.", sw.Elapsed, errors.Count + 1);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException && !cancellationToken.IsCancellationRequested)
+            {
+                return Failed($"{model}: {ex.Message}", sw.Elapsed);
+            }
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException && !cancellationToken.IsCancellationRequested)
-        {
-            return Failed($"{options.Model}: {ex.Message}", sw.Elapsed);
-        }
+
+        return Failed($"No planner model is available: {string.Join("; ", errors)}. Set Aiso:Planner:Model to a model the engine's API offers.", sw.Elapsed);
     }
 
-    public static HttpRequestMessage BuildRequest(AnswerEngineDefinition engine, PlannerOptions options, string prompt)
+    public static HttpRequestMessage BuildRequest(AnswerEngineDefinition engine, PlannerOptions options, string prompt, string? model = null)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(options);
+        model ??= options.Model;
         var body = new JsonObject
         {
-            ["model"] = options.Model,
+            ["model"] = model,
             ["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = prompt }),
             ["max_tokens"] = options.MaxOutputTokens,
             ["stream"] = false,
         };
-        if (options.EnableThinking is { } thinking)
+        if (options.EnableThinking is { } thinking && model.StartsWith("nvidia/", StringComparison.OrdinalIgnoreCase))
         {
             body["chat_template_kwargs"] = new JsonObject { ["enable_thinking"] = thinking };
         }

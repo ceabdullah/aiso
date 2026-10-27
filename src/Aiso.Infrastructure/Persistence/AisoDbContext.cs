@@ -20,6 +20,7 @@ public class AisoDbContext(DbContextOptions<AisoDbContext> options) : DbContext(
     public DbSet<SecurityRoleMapping> SecurityRoleMappings => Set<SecurityRoleMapping>();
     public DbSet<EngineProbeResult> EngineProbeResults => Set<EngineProbeResult>();
     public DbSet<AnswerEngineSetting> AnswerEngineSettings => Set<AnswerEngineSetting>();
+    public DbSet<ContentItem> ContentItems => Set<ContentItem>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -37,6 +38,8 @@ public class AisoDbContext(DbContextOptions<AisoDbContext> options) : DbContext(
         configurationBuilder.Properties<AuditStatus>().HaveConversion<string>().HaveMaxLength(32);
         configurationBuilder.Properties<RemediationStatus>().HaveConversion<string>().HaveMaxLength(32);
         configurationBuilder.Properties<AisoRole>().HaveConversion<string>().HaveMaxLength(32);
+        configurationBuilder.Properties<ContentKind>().HaveConversion<string>().HaveMaxLength(32);
+        configurationBuilder.Properties<ContentStatus>().HaveConversion<string>().HaveMaxLength(32);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

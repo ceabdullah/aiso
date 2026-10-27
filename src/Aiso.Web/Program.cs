@@ -48,6 +48,7 @@ builder.Services.AddAuthorizationBuilder()
 builder.Services.AddCascadingAuthenticationState();
 
 builder.Services.AddScoped<DashboardService>();
+builder.Services.AddScoped<ContentBoardService>();
 builder.Services.AddScoped<DashboardEvents>();
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 
