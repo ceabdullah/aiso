@@ -11,4 +11,10 @@ public enum ContentKind
 
     /// <summary>App Store description and "What's New" text.</summary>
     AppStoreText,
+
+    /// <summary>
+    /// Alt text for an image on the brand's site. <see cref="Entities.ContentItem.Question"/> holds the image address and
+    /// <see cref="Entities.ContentItem.LiveUrl"/> the page it is on.
+    /// </summary>
+    ImageAltText,
 }

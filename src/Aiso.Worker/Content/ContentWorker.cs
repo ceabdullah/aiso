@@ -21,6 +21,7 @@ namespace Aiso.Worker.Content;
 public sealed class ContentWorker(
     IDbContextFactory<AisoDbContext> contextFactory,
     IClaudeCliOrchestrator writer,
+    AltTextWriter altWriter,
     IServiceScopeFactory scopeFactory,
     AppStoreClient appStore,
     IOptions<CompetitorOptions> competitorOptions,
@@ -68,6 +69,12 @@ public sealed class ContentWorker(
             return;
         }
 
+        if (item.Kind == ContentKind.ImageAltText)
+        {
+            await WriteAltTextsAsync(db, ct);
+            return;
+        }
+
         if (!writer.IsEnabled)
         {
             Fail(item, "The writing model is switched off on this worker (Aiso:Planner).");
@@ -92,6 +99,37 @@ public sealed class ContentWorker(
 
         await db.SaveChangesAsync(ct);
     }
+
+    // Alt texts are short: a couple per tick, gentle on a shared free endpoint.
+    private async Task WriteAltTextsAsync(AisoDbContext db, CancellationToken ct)
+    {
+        var items = await db.ContentItems.Include(c => c.TargetProfile)
+            .Where(c => c.Status == ContentStatus.Drafting && c.Kind == ContentKind.ImageAltText)
+            .OrderBy(c => c.UpdatedAtUtc).Take(AltTextsPerTick)
+            .ToListAsync(ct);
+        foreach (var item in items)
+        {
+            // The page's language (alt items made before this was fixed may carry a test question's language).
+            item.LanguageCode = item.TargetProfile!.PrimaryLanguageCode;
+            var keywords = item.TargetProfile.GetBrandKeywords();
+            var result = await altWriter.DescribeAsync(item, keywords.Count > 0 ? keywords[0] : item.TargetProfile.DisplayName, null, ct);
+            if (result.AltText is { } alt)
+            {
+                item.Draft = alt;
+                item.Status = ContentStatus.InReview;
+                item.Error = null;
+                item.UpdatedBy = "vision";
+            }
+            else
+            {
+                Fail(item, result.Error ?? "No alt text.");
+            }
+
+            await db.SaveChangesAsync(ct);
+        }
+    }
+
+    private const int AltTextsPerTick = 2;
 
     private static void Fail(ContentItem item, string error)
     {
@@ -172,6 +210,7 @@ public sealed class ContentWorker(
                 // Social networks need a sign-in to show posts to a crawler, so the saved link is the record.
                 ContentKind.SocialPost => (true, "Link saved. Social networks need a sign-in, so AISO can't open the post itself."),
                 ContentKind.AppStoreText => await CheckListingAsync(item, ct),
+                ContentKind.ImageAltText => await CheckAltTextAsync(item, scraper, ct),
                 _ => ContentLoop.JudgeLivePage(await scraper.ScrapeAsync(new Uri(item.LiveUrl!), TargetChannelKind.DigitalChannel, ct)),
             };
             item.LiveCheckedAtUtc = timeProvider.GetUtcNow().UtcDateTime;
@@ -187,6 +226,14 @@ public sealed class ContentWorker(
         await db.SaveChangesAsync(ct);
     }
 
+    private static async Task<(bool, string)> CheckAltTextAsync(ContentItem item, NativeHtmlScraperService scraper, CancellationToken ct)
+    {
+        var page = new Uri(item.LiveUrl!);
+        return await scraper.FetchTextAsync(page, ct) is { } html
+            ? ContentLoop.JudgeAltText(NativeHtmlScraperService.AltTextOnPage(html, page, item.Question), item)
+            : (false, "The page didn't load.");
+    }
+
     private async Task<(bool, string)> CheckListingAsync(ContentItem item, CancellationToken ct)
     {
         var data = await appStore.GetAsync(item.LiveUrl ?? item.TargetProfile!.BaseUrl, ct);
@@ -198,7 +245,7 @@ public sealed class ContentWorker(
     private async Task CheckCitationsAsync(CancellationToken ct)
     {
         await using var db = await contextFactory.CreateDbContextAsync(ct);
-        var live = await db.ContentItems.Where(c => c.Status == ContentStatus.Live && c.LiveUrl != null && c.Kind != ContentKind.AppStoreText).ToListAsync(ct);
+        var live = await db.ContentItems.Where(c => c.Status == ContentStatus.Live && c.LiveUrl != null && c.Kind != ContentKind.AppStoreText && c.Kind != ContentKind.ImageAltText).ToListAsync(ct);
         foreach (var item in live)
         {
             var since = item.LiveCheckedAtUtc ?? item.UpdatedAtUtc;

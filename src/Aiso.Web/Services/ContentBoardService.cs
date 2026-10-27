@@ -30,7 +30,17 @@ public sealed record ContentCard(
     DateTime? CitedAtUtc,
     string? ApprovedBy,
     string? Error,
-    DateTime UpdatedAtUtc);
+    DateTime UpdatedAtUtc,
+    string ChannelBaseUrl,
+    string BrandKeywords)
+{
+    /// <summary>The brand name graphics and briefs use: the first brand keyword, else the channel name.</summary>
+    public string Brand => BrandKeywords.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? Channel;
+
+    /// <summary>The site shown on graphics: the published page's host, else the channel's.</summary>
+    public string Host =>
+        (Uri.TryCreate(LiveUrl ?? ChannelBaseUrl, UriKind.Absolute, out var u) ? u.Host : ChannelBaseUrl).Replace("www.", string.Empty, StringComparison.OrdinalIgnoreCase);
+}
 
 /// <summary>
 /// The people side of the content loop: propose ideas from the latest audits, queue drafts for the worker's writing
@@ -45,7 +55,7 @@ public sealed class ContentBoardService(IDbContextFactory<AisoDbContext> context
             .OrderByDescending(c => c.UpdatedAtUtc)
             .Select(c => new ContentCard(c.Id, c.TargetProfile!.DisplayName, c.TargetProfile.ChannelKind, c.Kind, c.Status, c.Title, c.Question,
                 c.LanguageCode, c.Source, c.Rationale, c.Draft, c.ImagePrompt, c.Platform, c.LiveUrl, c.LiveNote, c.LiveCheckedAtUtc,
-                c.CitedBy, c.CitedAtUtc, c.ApprovedBy, c.Error, c.UpdatedAtUtc))
+                c.CitedBy, c.CitedAtUtc, c.ApprovedBy, c.Error, c.UpdatedAtUtc, c.TargetProfile.BaseUrl, c.TargetProfile.BrandKeywords))
             .ToListAsync(ct);
     }
 
@@ -56,7 +66,7 @@ public sealed class ContentBoardService(IDbContextFactory<AisoDbContext> context
         var targets = await db.TargetProfiles.AsNoTracking().Where(t => t.IsActive).OrderBy(t => t.Code)
             .Select(t => new
             {
-                t.Id, t.DisplayName, t.ChannelKind, t.BaseUrl,
+                t.Id, t.DisplayName, t.ChannelKind, t.BaseUrl, t.PrimaryLanguageCode,
                 Questions = t.TestPrompts.Where(p => p.IsActive).Select(p => new { p.PromptText, p.LanguageCode }).ToList(),
             })
             .ToListAsync(ct);
@@ -78,7 +88,7 @@ public sealed class ContentBoardService(IDbContextFactory<AisoDbContext> context
                 .ToListAsync(ct);
 
             findings.Add(new ChannelFindings(t.Id, t.DisplayName, t.ChannelKind, t.BaseUrl, AuditMetricsDocument.TryParse(latest?.MetricsJson), probes,
-                t.Questions.Select(q => (q.PromptText, q.LanguageCode)).ToList()));
+                t.Questions.Select(q => (q.PromptText, q.LanguageCode)).ToList(), t.PrimaryLanguageCode));
         }
 
         var existing = (await db.ContentItems.AsNoTracking().Select(c => new { c.TargetProfileId, c.Kind, c.Question }).ToListAsync(ct))
@@ -102,6 +112,22 @@ public sealed class ContentBoardService(IDbContextFactory<AisoDbContext> context
             c.Status = ContentStatus.Drafting;
             c.Error = null;
         }, ct);
+
+    /// <summary>Queues every alt-text idea for the vision model. Returns how many.</summary>
+    public async Task<int> RequestAllAltTextsAsync(string? user, CancellationToken ct = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(ct);
+        var items = await db.ContentItems.Where(c => c.Kind == ContentKind.ImageAltText && c.Status == ContentStatus.Idea).ToListAsync(ct);
+        foreach (var item in items)
+        {
+            item.Status = ContentStatus.Drafting;
+            item.Error = null;
+            item.UpdatedBy = user;
+        }
+
+        await db.SaveChangesAsync(ct);
+        return items.Count;
+    }
 
     public Task SaveDraftAsync(Guid id, string draft, string? imagePrompt, string? user, CancellationToken ct = default) =>
         UpdateAsync(id, user, c =>

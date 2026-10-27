@@ -131,9 +131,16 @@ public sealed partial class SiteCrawler(NativeHtmlScraperService scraper, IOptio
         var (seo, seoIssues) = facts is null ? (null, null) : SeoChecks.Audit(pages, facts);
         var crawled = pages.Select(p => new CrawledPage(p.Url, p.HttpStatusCode, p.OnPageScore,
             p.Signals.Where(s => !s.Passed).Select(s => s.Name).ToList(), p.Metrics?.WordCount ?? 0,
-            p.ElapsedMs, p.Metrics?.Title, SeoChecks.Topics(p.Metrics), seoIssues?.GetValueOrDefault(p.Url))).ToList();
+            p.ElapsedMs, p.Metrics?.Title, SeoChecks.Topics(p.Metrics), seoIssues?.GetValueOrDefault(p.Url), AbsoluteImages(p))).ToList();
         return new SiteCrawl(pages.Count, skippedByRobots, pages.Count - ok.Count, checks, crawled, seo);
     }
+
+    // Image addresses resolved against the page they're on; at most 10 per page.
+    private static List<string>? AbsoluteImages(ScrapeResult page) =>
+        page.Metrics?.ImagesMissingAlt is { Count: > 0 } srcs && Uri.TryCreate(page.FinalUrl ?? page.Url, UriKind.Absolute, out var baseUri)
+            ? srcs.Select(s => Uri.TryCreate(baseUri, s, out var u) && (u.Scheme == Uri.UriSchemeHttps || u.Scheme == Uri.UriSchemeHttp) ? u.ToString() : null)
+                .OfType<string>().Distinct(StringComparer.Ordinal).Take(10).ToList()
+            : null;
 
     private async Task<RobotsTxt> RobotsForAsync(Uri url, CancellationToken ct)
     {

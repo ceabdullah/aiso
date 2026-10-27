@@ -19,7 +19,8 @@ public sealed record ChannelFindings(
     string BaseUrl,
     AuditMetricsDocument? Page,
     IReadOnlyList<ProbeSnapshot> Probes,
-    IReadOnlyList<(string Text, string LanguageCode)> Questions);
+    IReadOnlyList<(string Text, string LanguageCode)> Questions,
+    string PrimaryLanguage = "tr-TR");
 
 /// <summary>What the writing model is told about one item beyond the item itself.</summary>
 /// <param name="CompetitorsNamed">Banks the engines named instead of the brand for this question.</param>
@@ -50,6 +51,15 @@ public static partial class ContentLoop
     public const int SocialPerChannel = 2;
 
     public const string DefaultPlatform = "LinkedIn";
+
+    /// <summary>The most new alt-text items one run adds (counted apart from <see cref="MaxNewIdeas"/>).</summary>
+    public const int MaxAltIdeas = 30;
+
+    /// <summary>Alt text longer than this is cut by screen readers and search snippets.</summary>
+    public const int AltMaxLength = 125;
+
+    /// <summary>What the vision model answers for a purely decorative image; such images get alt="".</summary>
+    public const string Decorative = "DECORATIVE";
 
     /// <summary>Normalised identity of an item, so the same idea isn't proposed twice (dismissed ones included).</summary>
     public static string Key(Guid targetId, ContentKind kind, string question) =>
@@ -133,7 +143,177 @@ public static partial class ContentLoop
             }
         }
 
+        var alt = 0;
+        foreach (var c in channels.Where(c => c.Page?.Site is not null))
+        {
+            // Alt text is in the page's language: the channel's primary one, not that of a test question.
+            var language = c.PrimaryLanguage;
+            var images = c.Page!.Site!.Pages
+                .Where(p => p.HttpStatus is null or < 400)
+                .SelectMany(p => (p.ImagesMissingAlt ?? []).Where(img => !NativeHtmlScraperService.IsTrackingImage(img)).Select(img => (Image: img, Page: p.Url)))
+                .GroupBy(x => x.Image, StringComparer.Ordinal)
+                .OrderByDescending(g => g.Count());
+            foreach (var g in images)
+            {
+                if (alt >= MaxAltIdeas)
+                {
+                    break;
+                }
+
+                if (keys.Add(Key(c.TargetId, ContentKind.ImageAltText, g.Key)))
+                {
+                    var pages = g.Select(x => x.Page).Distinct(StringComparer.Ordinal).ToList();
+                    alt++;
+                    ideas.Add(new ContentItem
+                    {
+                        TargetProfileId = c.TargetId, Kind = ContentKind.ImageAltText, Title = Shorten($"Alt text: {FileName(g.Key)}", 500),
+                        Question = Shorten(g.Key, 1990), LanguageCode = language, Source = "alt-missing", LiveUrl = Shorten(pages[0], 1020),
+                        Rationale = Shorten(string.Create(CultureInfo.InvariantCulture,
+                            $"No alt text on {pages.Count} crawled page(s), e.g. {pages[0]}. Search engines and AI crawlers can't see images: alt text is how they learn what it shows."), 1990),
+                    });
+                }
+            }
+        }
+
         return ideas;
+    }
+
+    private static string FileName(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var u) && u.Segments.Length > 0 ? Uri.UnescapeDataString(u.Segments[^1]) : url;
+
+    /// <summary>The brief for the vision model: one alt text in the item's language, or DECORATIVE.</summary>
+    public static string BuildAltPrompt(ContentItem item, string brand, string? pageTitle)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        if (item.LanguageCode.StartsWith("tr", StringComparison.OrdinalIgnoreCase))
+        {
+            // Small vision models follow a brief in the answer's language much better than one in English.
+            return $"""
+                Bu görsel {brand} web sitesinde{(pageTitle is null ? string.Empty : $", “{pageTitle}” sayfasında")} yer alıyor. Görsel için alt metin yaz.
+                Yalnızca Türkçe yaz; görseldeki yazı başka dilde olsa bile açıklama Türkçe olmalı.
+                En fazla {AltMaxLength} karakterlik tek bir sade cümle: görselde ne olduğunu ve varsa verdiği mesajı (kampanya, ürün, kart) söyle.
+                Görseldeki önemli yazıları aynen aktar. "Görsel", "Resim" veya "Bu görselde" diye başlama; göremediğin ayrıntı uydurma.
+                Görsel yalnızca süs amaçlıysa (arka plan, ayraç, desen) sadece {Decorative} yaz.
+                Yalnızca alt metni yaz.
+                """;
+        }
+
+        return $"""
+            Write the alt text for this image on {brand}'s website{(pageTitle is null ? string.Empty : $", on the page “{pageTitle}”")}.
+            Write it in {LanguageName(item.LanguageCode)}, whatever language is in the image. One plain sentence of at most {AltMaxLength} characters that says what the image shows
+            and, if it carries a message (a campaign, a product, a card), that message. Copy any important text in the image.
+            Don't start with "Image of", "Görsel", "Resim" or similar, and don't invent details you can't see.
+            If the image is purely decorative (a background, a divider, a pattern), reply with the single word {Decorative}.
+            Reply with the alt text only.
+            """;
+    }
+
+    private static readonly string[] AltLeadIns =
+    [
+        "The image shows", "This image shows", "The image depicts", "This image depicts", "The image features", "An image of", "Image of",
+        "A picture of", "Picture of", "Bu görselde", "Görselde", "Bu resimde", "Resimde", "Görsel,", "Görsel:", "Resim:",
+    ];
+
+    private static readonly string[] EchoMarkers = ["alt metin yaz", "Yalnızca Türkçe yaz", "Write the alt text", "Reply with the alt text"];
+
+    private static readonly string[] EnglishMarkers = [" the ", " and ", " with ", " is ", " are ", " of ", " a "];
+
+    /// <summary>
+    /// Whether alt text meant for a non-English page reads as English: several common English words and no letters of
+    /// the page's language. Text copied from the image (award badges) usually has few of those words.
+    /// </summary>
+    public static bool LooksEnglish(string text, string languageCode)
+    {
+        if (string.IsNullOrWhiteSpace(text) || languageCode.StartsWith("en", StringComparison.OrdinalIgnoreCase) || text == Decorative)
+        {
+            return false;
+        }
+
+        var padded = " " + text.ToLowerInvariant() + " ";
+        var english = EnglishMarkers.Count(m => padded.Contains(m, StringComparison.Ordinal));
+        var turkish = languageCode.StartsWith("tr", StringComparison.OrdinalIgnoreCase) && text.IndexOfAny(['ç', 'ğ', 'ı', 'ö', 'ş', 'ü', 'Ç', 'Ğ', 'İ', 'Ö', 'Ş', 'Ü']) >= 0;
+        return english >= 2 && !turkish;
+    }
+
+    private static CultureInfo CultureFor(string languageCode) =>
+        languageCode.StartsWith("tr", StringComparison.OrdinalIgnoreCase) ? CultureInfo.GetCultureInfo("tr-TR") : CultureInfo.InvariantCulture;
+
+    /// <summary>A language code as a name small models follow better: tr-TR → Turkish (Türkçe).</summary>
+    public static string LanguageName(string languageCode) => (languageCode ?? string.Empty).Split('-')[0].ToLowerInvariant() switch
+    {
+        "tr" => "Turkish (Türkçe)",
+        "en" => "English",
+        "de" => "German (Deutsch)",
+        "ar" => "Arabic",
+        var other => $"the language \"{(other.Length == 0 ? "tr" : other)}\"",
+    };
+
+    /// <summary>The model's alt text, cleaned: one line, no quotes or "alt=" prefix, cut at a word boundary.</summary>
+    public static string CleanAltText(string answer, string languageCode = "tr-TR")
+    {
+        ArgumentNullException.ThrowIfNull(answer);
+        var text = ThinkBlock().Replace(answer, string.Empty).Trim();
+        text = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? string.Empty;
+        if (text.StartsWith("alt=", StringComparison.OrdinalIgnoreCase) || text.StartsWith("alt:", StringComparison.OrdinalIgnoreCase))
+        {
+            text = text[4..].Trim();
+        }
+
+        text = text.Trim('"', '\'', '“', '”', '`', ' ');
+        // Small vision models open with these despite the brief; the alt text is the rest of the sentence.
+        foreach (var lead in AltLeadIns)
+        {
+            if (text.StartsWith(lead, StringComparison.OrdinalIgnoreCase) && text.Length > lead.Length + 3)
+            {
+                text = text[lead.Length..].TrimStart(' ', ':', ',');
+                text = char.ToUpper(text[0], CultureFor(languageCode)) + text[1..];
+                break;
+            }
+        }
+
+        if (text.Contains(Decorative, StringComparison.OrdinalIgnoreCase) && text.Length <= Decorative.Length + 2)
+        {
+            return Decorative;
+        }
+
+        // A model that repeats the brief hasn't described anything.
+        if (EchoMarkers.Any(m => text.Contains(m, StringComparison.OrdinalIgnoreCase)))
+        {
+            return string.Empty;
+        }
+
+        // Several sentences: keep the first whole one when it says enough.
+        if (text.Length > AltMaxLength)
+        {
+            var end = text.IndexOf(". ", StringComparison.Ordinal);
+            if (end >= 30 && end < AltMaxLength)
+            {
+                return text[..(end + 1)];
+            }
+        }
+
+        if (text.Length > AltMaxLength)
+        {
+            var cut = text[..AltMaxLength];
+            var space = cut.LastIndexOf(' ');
+            text = (space > AltMaxLength / 2 ? cut[..space] : cut).TrimEnd(',', ';', ' ') + "…";
+        }
+
+        return text;
+    }
+
+    /// <summary>Whether the page now carries the alt text: any alt for a described image, an alt attribute for a decorative one.</summary>
+    public static (bool Live, string Note) JudgeAltText(string? alt, ContentItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        var decorative = string.Equals(item.Draft, Decorative, StringComparison.Ordinal);
+        return alt switch
+        {
+            null => (false, "The image on the page still has no alt attribute."),
+            "" when decorative => (true, "Marked decorative on the page (alt=\"\")."),
+            "" => (false, "The image has an empty alt attribute; add the approved text."),
+            _ => (true, $"Alt text found on the page: “{Shorten(alt, 120)}”"),
+        };
     }
 
     private static (string Name, string Question, string Rationale)? AppIdea(ChannelFindings c)

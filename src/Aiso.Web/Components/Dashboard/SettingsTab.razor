@@ -55,6 +55,14 @@
     </div>
 
     <div class="setting">
+        <label for="graphics-bg">Content graphics colours <Info Text="Used for the share images, LinkedIn carousels and App Store frames in the Content tab. Use a dark brand colour for the background: text on it is white." /></label>
+        <div class="color-row">
+            <label class="check"><input id="graphics-bg" type="color" @bind="_graphicsBackground" /> Background <span class="mono small">@_graphicsBackground</span></label>
+            <label class="check"><input type="color" @bind="_graphicsAccent" /> Accent <span class="mono small">@_graphicsAccent</span></label>
+        </div>
+    </div>
+
+    <div class="setting">
         <label for="theme">Default theme for new users <Info Text="The theme for users who haven't picked one with the toggle in the header." /></label>
         <select id="theme" class="input input-sm" @bind="_theme">
             <option value="dark">Dark</option>
@@ -73,6 +81,7 @@
     private int _retentionDays = 30, _cleanupDays = 7, _threshold = 60, _auditHours = 24;
     private string _recipients = string.Empty, _theme = "dark";
     private string _searchCountry = string.Empty, _searchCity = string.Empty, _searchRegion = string.Empty, _searchTimezone = string.Empty;
+    private string _graphicsBackground = "#14213D", _graphicsAccent = "#1FA67A";
     private bool _saving;
     private string? _message;
     private bool _isError;
@@ -89,6 +98,9 @@
         _searchCity = await Settings.GetStringAsync(SettingKeys.SearchCity);
         _searchRegion = await Settings.GetStringAsync(SettingKeys.SearchRegion);
         _searchTimezone = await Settings.GetStringAsync(SettingKeys.SearchTimezone);
+        var style = Aiso.Infrastructure.Content.GraphicStyle.From(
+            await Settings.GetStringAsync(SettingKeys.GraphicsBackgroundColor), await Settings.GetStringAsync(SettingKeys.GraphicsAccentColor));
+        (_graphicsBackground, _graphicsAccent) = (style.Background, style.Accent);
     }
 
     private async Task SaveAsync()
@@ -115,6 +127,9 @@
             await Settings.SetAsync(SettingKeys.SearchCity, _searchCity.Trim(), user);
             await Settings.SetAsync(SettingKeys.SearchRegion, _searchRegion.Trim(), user);
             await Settings.SetAsync(SettingKeys.SearchTimezone, _searchTimezone.Trim(), user);
+            var style = Aiso.Infrastructure.Content.GraphicStyle.From(_graphicsBackground, _graphicsAccent);
+            await Settings.SetAsync(SettingKeys.GraphicsBackgroundColor, style.Background.ToUpperInvariant(), user);
+            await Settings.SetAsync(SettingKeys.GraphicsAccentColor, style.Accent.ToUpperInvariant(), user);
             (_message, _isError) = ("Settings saved. The worker applies them on its next cycle.", false);
         }
         catch (Exception ex)

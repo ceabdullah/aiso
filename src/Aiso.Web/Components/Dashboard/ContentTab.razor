@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject ContentBoardService Board
 @inject IJSRuntime JS
+@inject Aiso.Infrastructure.Settings.ISystemSettingsService Settings
 
 <div class="loop" role="group" aria-label="Content loop stages">
     @foreach (var (status, label, tip) in Stages)
@@ -20,6 +21,13 @@
                 data-tip="Looks at each channel's latest audit and proposes pages, posts and App Store text for the questions where the brand is missing or no page answers. No AI is used for this step.">
             <Icon Name="suggestions" /> Find content ideas
         </button>
+        @if (AltIdeas > 0)
+        {
+            <button class="btn btn-ghost" disabled="@_busy" @onclick="DescribeAllAsync"
+                    data-tip="Asks the free NVIDIA vision model to describe every image that has no alt text yet. You review each one before it goes to the web team.">
+                Describe all @AltIdeas images with AI
+            </button>
+        }
     </AuthorizeView>
     <div class="filters" role="group" aria-label="Content type">
         @foreach (var (kind, label) in Kinds)
@@ -72,6 +80,12 @@
                     <span class="chip @StatusChip(c.Status)" data-tip="@StageTip(c.Status)">@StageLabel(c.Status)</span>
                 </div>
                 <h3 class="post-title">@c.Title</h3>
+                @if (c.Kind == ContentKind.ImageAltText)
+                {
+                    <a href="@c.Question" target="_blank" rel="noopener noreferrer" class="alt-thumb-link" title="@c.Question">
+                        <img class="alt-thumb" src="@c.Question" alt="" loading="lazy" referrerpolicy="no-referrer" />
+                    </a>
+                }
                 @if (c.Rationale is not null)
                 {
                     <p class="post-text small">@c.Rationale</p>
@@ -86,7 +100,7 @@
                     case ContentStatus.Idea:
                         <AuthorizeView Policy="@AisoPolicies.CanEdit" Context="auth">
                             <div class="post-actions">
-                                <button class="btn btn-primary btn-sm" @onclick="() => DoAsync(() => Board.RequestDraftAsync(c.Id, _user))">Write draft with AI</button>
+                                <button class="btn btn-primary btn-sm" @onclick="() => DoAsync(() => Board.RequestDraftAsync(c.Id, _user))">@(c.Kind == ContentKind.ImageAltText ? "Describe with AI" : "Write draft with AI")</button>
                                 <button class="btn btn-ghost btn-sm" @onclick="() => DoAsync(() => Board.DismissAsync(c.Id, _user))">Dismiss</button>
                             </div>
                         </AuthorizeView>
@@ -98,8 +112,17 @@
 
                     case ContentStatus.InReview:
                         <div class="draft-edit">
-                            <label class="field-label" for="@($"d-{c.Id}")">Draft <span class="muted">· edit freely; fill every [placeholder] with checked facts</span></label>
-                            <textarea id="@($"d-{c.Id}")" class="input draft-text" rows="14" @bind="_drafts[c.Id]"></textarea>
+                            @if (c.Kind == ContentKind.ImageAltText)
+                            {
+                                <label class="field-label" for="@($"d-{c.Id}")">Alt text <span class="muted">· max @ContentLoop.AltMaxLength characters; @ContentLoop.Decorative means alt=""</span></label>
+                                <textarea id="@($"d-{c.Id}")" class="input" rows="2" maxlength="@ContentLoop.AltMaxLength" @bind="_drafts[c.Id]" @bind:event="oninput"></textarea>
+                                <span class="muted small">@_drafts[c.Id].Length / @ContentLoop.AltMaxLength</span>
+                            }
+                            else
+                            {
+                                <label class="field-label" for="@($"d-{c.Id}")">Draft <span class="muted">· edit freely; fill every [placeholder] with checked facts</span></label>
+                                <textarea id="@($"d-{c.Id}")" class="input draft-text" rows="14" @bind="_drafts[c.Id]"></textarea>
+                            }
                             @if (c.Kind == ContentKind.SocialPost)
                             {
                                 <label class="field-label" for="@($"i-{c.Id}")">Image idea</label>
@@ -114,6 +137,21 @@
                                 <button class="btn btn-ghost btn-sm" @onclick="() => DoAsync(() => Board.RequestDraftAsync(c.Id, _user))">Rewrite with AI</button>
                                 <button class="btn btn-ghost btn-sm" @onclick="() => CopyAsync(c.Id, _drafts[c.Id])">@CopyLabel(c.Id)</button>
                                 <button class="btn btn-ghost btn-sm" @onclick="() => DoAsync(() => Board.DismissAsync(c.Id, _user))">Dismiss</button>
+                            </div>
+                        </AuthorizeView>
+                        break;
+
+                    case ContentStatus.Approved when c.Kind == ContentKind.ImageAltText:
+                        <pre class="kit-code">@AltSnippet(c)</pre>
+                        <div class="post-actions">
+                            <button class="btn btn-ghost btn-sm" @onclick="() => CopyAsync(c.Id, AltSnippet(c))">@CopyLabel(c.Id)</button>
+                        </div>
+                        <AuthorizeView Policy="@AisoPolicies.CanEdit" Context="auth">
+                            <div class="publish-row">
+                                <input class="input input-sm" type="url" @bind="_urls[c.Id]" aria-label="Page with the image" />
+                                <button class="btn btn-primary btn-sm" @onclick="() => DoAsync(() => Board.MarkPublishedAsync(c.Id, _urls.GetValueOrDefault(c.Id) ?? string.Empty, _user))"
+                                        data-tip="After the web team has added the alt text to the image on this page, AISO reads the page and confirms it.">Mark as added</button>
+                                <button class="btn btn-ghost btn-sm" @onclick="() => DoAsync(() => Board.ReopenAsync(c.Id, _user))">Back to review</button>
                             </div>
                         </AuthorizeView>
                         break;
@@ -176,7 +214,33 @@
                         </AuthorizeView>
                         break;
                 }
-                <p class="post-evidence muted small">Question: “@c.Question”</p>
+                @if (c.Kind != ContentKind.ImageAltText && !string.IsNullOrWhiteSpace(c.Draft) && c.Status is not (ContentStatus.Idea or ContentStatus.Drafting or ContentStatus.Dismissed))
+                {
+                    var graphics = ContentGraphics.For(new GraphicSource(c.Kind, c.Title, c.Question, c.Status == ContentStatus.InReview ? _drafts.GetValueOrDefault(c.Id, c.Draft) : c.Draft, c.Brand, c.Host), _style);
+                    @if (graphics.Count > 0)
+                    {
+                        <details class="post-tips graphics">
+                            <summary class="small">Graphics · @graphics.Count, made from this draft</summary>
+                            <p class="muted small">@graphics[0].HowTo Brand colours are set in System Settings. Check the text before use: it comes straight from the draft.</p>
+                            <div class="graphic-grid">
+                                @foreach (var g in graphics)
+                                {
+                                    <figure class="graphic">
+                                        <img src="@SvgUri(g.Svg)" alt="@g.Label" loading="lazy" />
+                                        <figcaption class="small">
+                                            <span>@g.Label <span class="muted">· @g.Width×@g.Height</span></span>
+                                            <span class="graphic-actions">
+                                                <button type="button" class="btn btn-ghost btn-sm" @onclick="() => DownloadPngAsync(g)">PNG</button>
+                                                <a class="btn btn-ghost btn-sm" download="@g.FileName" href="@SvgUri(g.Svg)">SVG</a>
+                                            </span>
+                                        </figcaption>
+                                    </figure>
+                                }
+                            </div>
+                        </details>
+                    }
+                }
+                <p class="post-evidence muted small">@(c.Kind == ContentKind.ImageAltText ? "Image" : "Question"): “@c.Question”</p>
             </div>
         </li>
     }
@@ -197,7 +261,7 @@
     ];
 
     private static readonly (ContentKind? Kind, string Label)[] Kinds =
-        [(null, "All"), (ContentKind.Article, "Web pages"), (ContentKind.SocialPost, "Social posts"), (ContentKind.AppStoreText, "App Store")];
+        [(null, "All"), (ContentKind.Article, "Web pages"), (ContentKind.SocialPost, "Social posts"), (ContentKind.AppStoreText, "App Store"), (ContentKind.ImageAltText, "Alt text")];
 
     private IReadOnlyList<ContentCard>? _items;
     private readonly Dictionary<Guid, string> _drafts = [];
@@ -212,11 +276,13 @@
     private string? _message;
     private bool _isError;
     private Guid? _copied;
+    private GraphicStyle _style = GraphicStyle.Default;
     private bool _copyFailed;
 
     protected override async Task OnInitializedAsync()
     {
         _user = (await AuthState).User.Identity?.Name;
+        _style = GraphicStyle.From(await Settings.GetStringAsync(SettingKeys.GraphicsBackgroundColor), await Settings.GetStringAsync(SettingKeys.GraphicsAccentColor));
         await LoadAsync();
         _ = PollAsync();
     }
@@ -321,6 +387,7 @@
     {
         ContentKind.SocialPost => $"{c.Platform ?? ContentLoop.DefaultPlatform} post",
         ContentKind.AppStoreText => "App Store text",
+        ContentKind.ImageAltText => "Alt text",
         _ => "Web page",
     };
 
@@ -349,6 +416,40 @@
         ContentKind.AppStoreText => "app-store-text.md",
         _ => "web-page.md",
     };
+
+    private int AltIdeas => _items?.Count(c => c.Kind == ContentKind.ImageAltText && c.Status == ContentStatus.Idea) ?? 0;
+
+    private async Task DescribeAllAsync()
+    {
+        _busy = true;
+        try
+        {
+            var queued = await Board.RequestAllAltTextsAsync(_user, _cts.Token);
+            (_message, _isError) = ($"{queued} image(s) queued for the vision model; drafts arrive a few at a time.", false);
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string AltSnippet(ContentCard c) =>
+        $"<img src=\"{c.Question}\" alt=\"{(c.Draft == ContentLoop.Decorative ? string.Empty : System.Net.WebUtility.HtmlEncode(c.Draft))}\">";
+
+    private static string SvgUri(string svg) => "data:image/svg+xml;charset=utf-8," + Uri.EscapeDataString(svg);
+
+    private async Task DownloadPngAsync(Graphic g)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("aisoGraphics.downloadPng", g.Svg, g.Width, g.Height, Path.ChangeExtension(g.FileName, ".png"));
+        }
+        catch (JSException)
+        {
+            (_message, _isError) = ("This browser couldn't make the PNG; download the SVG instead.", true);
+        }
+    }
 
     private static string DataUri(string content) => "data:text/plain;charset=utf-8," + Uri.EscapeDataString(content);
 

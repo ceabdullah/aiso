@@ -27,7 +27,8 @@ public sealed record PageMetrics(
     StorefrontMetrics? Storefront,
     bool HasViewport = true,
     int HtmlLength = 0,
-    IReadOnlyList<string>? ContentHeadings = null);
+    IReadOnlyList<string>? ContentHeadings = null,
+    IReadOnlyList<string>? ImagesMissingAlt = null);
 
 /// <summary>One weighted on-page signal, kept so the score is explainable in reports.</summary>
 public sealed record ScoreSignal(string Name, decimal Weight, bool Passed, string Detail);
@@ -50,6 +51,7 @@ public sealed record PageScrape(ScrapeResult Result, IReadOnlyList<Uri> Links);
 /// <summary>One page of a site crawl, reduced to what the advisor, the SEO view and the plan writer need.</summary>
 /// <param name="Topics">Title, H1 and H2 texts: what the page targets, for matching it against customer questions.</param>
 /// <param name="SeoIssues">Keys of the <see cref="SeoChecks"/> this page fails.</param>
+/// <param name="ImagesMissingAlt">Absolute URLs of the page's content images without alt text.</param>
 public sealed record CrawledPage(
     string Url,
     int? HttpStatus,
@@ -59,7 +61,8 @@ public sealed record CrawledPage(
     long ResponseMs = 0,
     string? Title = null,
     string? Topics = null,
-    IReadOnlyList<string>? SeoIssues = null);
+    IReadOnlyList<string>? SeoIssues = null,
+    IReadOnlyList<string>? ImagesMissingAlt = null);
 
 /// <summary>How many crawled pages pass one on-page check, with a few failing URLs as examples.</summary>
 public sealed record SiteCheck(string Signal, int Passed, int Total, IReadOnlyList<string> FailingExamples)

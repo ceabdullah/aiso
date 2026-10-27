@@ -200,7 +200,9 @@ public sealed partial class NativeHtmlScraperService(
             Storefront: kind == TargetChannelKind.MobileAppStore ? ParseStorefront(jsonLdNodes, Meta) : null,
             HasViewport: hasViewport,
             HtmlLength: html.Length,
-            ContentHeadings: contentHeadings);
+            ContentHeadings: contentHeadings,
+            ImagesMissingAlt: images.Where(i => string.IsNullOrWhiteSpace(i.Attributes["alt"]?.Value)).Select(ImageSource).OfType<string>()
+                .Distinct(StringComparer.Ordinal).Take(20).ToList());
     }
 
     private static StorefrontMetrics ParseStorefront(List<JsonElement> jsonLd, Func<string, string, string?> meta)
@@ -355,6 +357,46 @@ public sealed partial class NativeHtmlScraperService(
 
     private static decimal? ReadDecimal(JsonElement e, string name) =>
         decimal.TryParse(ReadString(e, name), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : null;
+
+    /// <summary>
+    /// The address of an image worth describing: its src (or a lazy-loading data-src), leaving out inline data, SVG icons
+    /// and 1-2 pixel tracking images.
+    /// </summary>
+    private static readonly string[] ImageSourceAttributes = ["data-src", "data-lazy-src", "src"];
+
+    private static string? ImageSource(HtmlNode img)
+    {
+        var src = WebUtility.HtmlDecode(ImageSourceAttributes
+            .Select(a => img.GetAttributeValue(a, string.Empty).Trim()).FirstOrDefault(s => s.Length > 0) ?? string.Empty);
+        bool Tiny(string a) => int.TryParse(img.GetAttributeValue(a, string.Empty), NumberStyles.Integer, CultureInfo.InvariantCulture, out var px) && px <= 2;
+        return src.Length == 0 || src.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+               || src.Split('?')[0].EndsWith(".svg", StringComparison.OrdinalIgnoreCase) || Tiny("width") || Tiny("height") || IsTrackingImage(src)
+            ? null : src;
+    }
+
+    private static readonly string[] TrackingNames = ["pixel", "beacon", "spacer", "blank.gif", "tracking", "/collect", "analytics", "loading.gif", "spinner", "loader.gif"];
+
+    /// <summary>Analytics pixels, spacers and loading spinners: images nobody reads, so they need no alt text.</summary>
+    public static bool IsTrackingImage(string src) =>
+        TrackingNames.Any(n => (src ?? string.Empty).Split('?')[0].Contains(n, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The alt attribute of the image at <paramref name="imageUrl"/> on a page (null when the image has none or isn't there).</summary>
+    public static string? AltTextOnPage(string html, Uri pageUrl, string imageUrl)
+    {
+        ArgumentNullException.ThrowIfNull(pageUrl);
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html ?? string.Empty);
+        foreach (var img in doc.DocumentNode.SelectNodes("//img") ?? Enumerable.Empty<HtmlNode>())
+        {
+            if (ImageSource(img) is { } src && Uri.TryCreate(pageUrl, src, out var abs)
+                && string.Equals(abs.ToString(), imageUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                return img.Attributes["alt"]?.Value;
+            }
+        }
+
+        return null;
+    }
 
     private static string Lower(string attribute) => $"translate({attribute},'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')";
 

@@ -520,3 +520,12 @@ h1:focus { outline: none; } /* FocusOnNavigate moves focus here for screen reade
 .publish-row .input { flex: 1 1 260px; }
 .content-card.status-cited { border-left: 3px solid var(--good); }
 .content-card.status-dismissed { opacity: .6; }
+.alt-thumb-link { display: inline-block; margin: 6px 0; }
+.alt-thumb { display: block; max-width: min(320px, 100%); max-height: 160px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); object-fit: contain; }
+.graphic-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 8px; }
+.graphic { margin: 0; display: grid; gap: 6px; }
+.graphic img { width: 100%; height: 160px; object-fit: contain; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; }
+.graphic figcaption { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px; }
+.graphic-actions { display: inline-flex; gap: 4px; }
+.color-row { display: flex; flex-wrap: wrap; gap: 18px; }
+.color-row input[type=color] { width: 40px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: none; vertical-align: middle; }

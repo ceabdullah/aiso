@@ -1,5 +1,6 @@
 using Aiso.Infrastructure.Recommendations;
 using Aiso.Infrastructure.AppStore;
+using Aiso.Infrastructure.Content;
 using Aiso.Infrastructure.Engines;
 using Aiso.Infrastructure.Llm;
 using Aiso.Infrastructure.Notifications;
@@ -99,6 +100,8 @@ public static class DependencyInjection
         {
             builder.Services.AddSingleton<IClaudeCliOrchestrator, ClaudeCliOrchestrator>();
         }
+        builder.Services.AddOptions<VisionOptions>().Bind(config.GetSection(VisionOptions.SectionName));
+        builder.Services.AddSingleton<AltTextWriter>();
         builder.Services.AddSingleton<AisoMarkdownExporter>();
         builder.Services.AddSingleton<IAisoNotificationService, AisoNotificationService>();
         return builder;
