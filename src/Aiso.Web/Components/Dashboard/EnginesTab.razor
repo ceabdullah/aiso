@@ -1,0 +1,191 @@
+@attribute [Authorize(Policy = AisoPolicies.Admin)]
+@inject DashboardService Dashboard
+
+<div class="toolbar">
+    <span class="muted small">
+        Switch external AI answer engines on or off, choose their models and set their API keys. Changes apply from the next audit run.
+        Keys are encrypted before they are stored and can't be viewed again, only replaced or removed.
+    </span>
+    <span class="spacer"></span>
+    <button class="btn btn-ghost" @onclick="LoadAsync">Refresh</button>
+    <button class="btn btn-primary" disabled="@(_saving || _engines.Count == 0)" @onclick="SaveAsync">Save engines</button>
+</div>
+
+<StatusMessage Message="@_message" IsError="_isError" />
+
+@if (_engines.Count == 0)
+{
+    <div class="panel">
+        <p class="muted">No engines registered yet. The worker lists its configured engines here when it starts.</p>
+    </div>
+}
+else
+{
+    <div class="engine-grid">
+        @foreach (var e in _engines)
+        {
+            <article class="card engine-card @(Active(e) ? null : "inactive")">
+                <header class="card-head">
+                    <div>
+                        <div class="card-title">@e.DisplayName</div>
+                        <div class="muted small">@KindLabel(e.Kind)@if (e.Kind == "OpenAiCompatibleChat") { <Info Text="Simulated: this model answers from memory without searching the web. Its answers are shown, but not counted in scores." /> }</div>
+                    </div>
+                    <label class="switch" title="@(e.IsEnabled ? "Switch off" : "Switch on")">
+                        <input type="checkbox" role="switch" @bind="e.IsEnabled" aria-label="@($"{e.DisplayName} enabled")" />
+                        <span class="switch-track" aria-hidden="true"></span>
+                    </label>
+                </header>
+
+                <div>
+                    @if (!e.KeyConfigured && !e.HasUiKey && e.SharedKeyFrom is null)
+                    {
+                        <span class="chip chip-bad">No API key</span>
+                    }
+                    else if (e.IsEnabled)
+                    {
+                        <span class="chip chip-ok">Active</span>
+                    }
+                    else
+                    {
+                        <span class="chip">Off</span>
+                    }
+                </div>
+
+                <div class="engine-fields">
+                    <div class="field">
+                        <span class="field-label">API key <Info Text="Encrypted before it's stored, and never shown again: you can only replace or remove it. NVIDIA models share one key." /></span>
+                        @if (e.SharedKeyFrom is { } owner && !e.HasUiKey)
+                        {
+                            <span class="key-status small">Uses the @owner key. Paste a key here only to give this model its own.</span>
+                        }
+                        @if (e.KeyConfigured)
+                        {
+                            <span class="key-status small">Set on the worker host. It takes precedence over a key entered here.</span>
+                            @if (e.HasUiKey && !e.RemoveApiKey)
+                            {
+                                <span class="key-status small">The key entered here (<span class="mono">••••@e.ApiKeyHint</span>) is stored but not used.</span>
+                            }
+                        }
+                        else if (e.HasUiKey && !e.RemoveApiKey)
+                        {
+                            <span class="key-status small">
+                                <span class="mono">••••@e.ApiKeyHint</span>
+                                · set by @(e.ApiKeyUpdatedBy ?? "unknown") on @e.ApiKeyUpdatedAtUtc?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) UTC
+                            </span>
+                        }
+                        else if (e.RemoveApiKey)
+                        {
+                            <span class="key-status small warn-text">Key will be removed when you save.</span>
+                        }
+                        <div class="key-row">
+                            <input class="input mono" type="password" autocomplete="new-password" spellcheck="false" maxlength="512"
+                                   @bind="e.NewApiKey" @bind:event="oninput"
+                                   placeholder="@(e.HasUiKey ? "Paste a new key to replace it" : "Paste API key")"
+                                   aria-label="@($"{e.DisplayName} API key")" />
+                            @if (e.HasUiKey && !e.RemoveApiKey)
+                            {
+                                <button type="button" class="btn btn-danger btn-sm" @onclick="() => { e.RemoveApiKey = true; e.NewApiKey = null; }">Remove</button>
+                            }
+                            else if (e.RemoveApiKey)
+                            {
+                                <button type="button" class="btn btn-ghost btn-sm" @onclick="() => e.RemoveApiKey = false">Undo</button>
+                            }
+                        </div>
+                    </div>
+                    <label class="field">
+                        <span class="field-label">Model <Info Text="The vendor's model id. Leave it empty to use the default shown below." /></span>
+                        <input class="input mono" @bind="e.ModelOverride" placeholder="@(e.DefaultModel ?? "model id")" maxlength="256"
+                               aria-label="@($"{e.DisplayName} model")" />
+                        <span class="muted small">Default: <span class="mono">@(e.DefaultModel ?? "—")</span></span>
+                    </label>
+                    @if (e.SupportsSearchLimit)
+                    {
+                        <label class="field">
+                            <span class="field-label">Web searches per answer <Info Text="The most web searches the engine may run for one answer. Each search is billed, so this caps the cost of an audit." /></span>
+                            <input class="input input-sm" type="number" min="1" max="20" @bind="e.MaxSearchesOverride" placeholder="default"
+                                   aria-label="@($"{e.DisplayName} searches per answer")" />
+                            <span class="muted small">Each search is billed by the engine vendor, and its results add input tokens. Fewer searches cost less.</span>
+                        </label>
+                    }
+                </div>
+
+                <dl class="engine-stats">
+                    <div><dt>Answers (30d) <Info Text="Answers this engine gave in the last 30 days." /></dt><dd>@e.Answers30d</dd></div>
+                    <div><dt>Errors (30d) <Info Text="Questions that failed in the last 30 days: timeouts, quota or key errors. See the Answers tab, filter Failed." /></dt><dd class="@(e.Errors30d > 0 ? "warn-text" : null)">@e.Errors30d</dd></div>
+                    <div><dt>Avg. time <Info Text="Average time for one answer." /></dt><dd>@FormatLatency(e)</dd></div>
+                    <div><dt>Est. answers / month <Info Text="Active test questions × audits per month at the current interval: a guide to this engine's monthly cost." /></dt><dd>@e.EstimatedAnswersPerMonth</dd></div>
+                </dl>
+
+                <footer class="card-foot muted small">
+                    @(e.LastUsedUtc is null ? "Not used yet" : $"Last used {e.LastUsedUtc:yyyy-MM-dd HH:mm} UTC")
+                    @if (e.UpdatedBy is not null && e.UpdatedBy != "worker")
+                    {
+                        <span>· changed by @e.UpdatedBy</span>
+                    }
+                </footer>
+            </article>
+        }
+    </div>
+    <p class="muted small">
+        Estimated answers per month = active test prompts × audit runs per month (from the audit interval in System Settings).
+        Each answer is one paid API call to that vendor.
+    </p>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<EngineEditModel> _engines = [];
+    private bool _saving;
+    private string? _message;
+    private bool _isError;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _engines = await Dashboard.GetEnginesAsync();
+        _message = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        try
+        {
+            await Dashboard.SaveEnginesAsync(_engines, (await AuthState).User.Identity?.Name);
+            await LoadAsync();
+            var on = _engines.Count(Active);
+            (_message, _isError) = ($"Engines saved. {on} engine(s) will be asked on the next audit run.", false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            (_message, _isError) = (ex.Message, true);
+        }
+        catch (Exception ex)
+        {
+            (_message, _isError) = ($"Save failed: {ex.Message}", true);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private static string FormatLatency(EngineEditModel e) =>
+        e.Answers30d == 0 ? "—"
+        : e.AvgLatencyMs < 1000 ? $"{e.AvgLatencyMs} ms"
+        : (e.AvgLatencyMs / 1000.0).ToString("0.0 's'", CultureInfo.InvariantCulture);
+
+    private static bool Active(EngineEditModel e) => e.IsEnabled && (e.KeyConfigured || e.HasUiKey || e.SharedKeyFrom is not null);
+
+    private static string KindLabel(string kind) => kind switch
+    {
+        "OpenAiResponses" => "OpenAI Responses API · web search",
+        "GeminiGrounded" => "Gemini API · Google Search grounding",
+        "PerplexitySonar" => "Perplexity Sonar",
+        "AnthropicWebSearch" => "Claude API · web search",
+        "OpenAiCompatibleChat" => "OpenAI-compatible chat · no web search (simulated, not scored)",
+        _ => kind,
+    };
+}

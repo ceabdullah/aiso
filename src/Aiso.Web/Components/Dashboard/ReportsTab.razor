@@ -1,0 +1,64 @@
+@inject DashboardService Dashboard
+
+<div class="toolbar">
+    <span class="muted small">Markdown checklists exported to <span class="mono">reports/*_AISO_remediation_plan.md</span> in the workspace.</span>
+    <span class="spacer"></span>
+    <button class="btn btn-ghost" @onclick="LoadAsync">Refresh</button>
+</div>
+
+<div class="grid-reports">
+    <div class="panel">
+        <table class="table selectable">
+            <thead><tr><th>Generated (UTC)</th><th>Channel</th><th>Lang</th><th>Status <Info Text="Published: the plan was written and exported. Failed: the planner model gave no usable answer; the audit's scores still count." /></th><th class="num">Items <Info Text="The number of action items in the plan." /></th></tr></thead>
+            <tbody>
+                @foreach (var r in _reports)
+                {
+                    <tr class="@(r.Id == _selectedId ? "selected" : null)" @onclick="() => SelectAsync(r.Id)">
+                        <td class="mono small">@r.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)</td>
+                        <td>@r.Target</td>
+                        <td class="mono">@r.LanguageCode</td>
+                        <td><span class="chip @(r.Status == RemediationStatus.Published ? "chip-ok" : r.Status == RemediationStatus.Failed ? "chip-bad" : null)">@r.Status</span></td>
+                        <td class="num">@r.ItemCount</td>
+                    </tr>
+                }
+                @if (_reports.Count == 0)
+                {
+                    <tr><td colspan="5" class="muted">No reports yet. Run an audit to generate the first plans.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="panel report-preview">
+        @if (_selected is { } sel)
+        {
+            <div class="toolbar">
+                <span class="mono small">@sel.FileName</span>
+                <span class="spacer"></span>
+                <a class="btn btn-ghost btn-sm" href="reports/@_selectedId/download" download>Download .md</a>
+            </div>
+            @* Rendered as text, never as HTML: agent output is untrusted. *@
+            <pre class="markdown">@sel.Markdown</pre>
+        }
+        else
+        {
+            <p class="muted">Select a report to preview it.</p>
+        }
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<ReportListItem> _reports = [];
+    private Guid? _selectedId;
+    private (string FileName, string Markdown)? _selected;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() => _reports = await Dashboard.GetReportsAsync();
+
+    private async Task SelectAsync(Guid id)
+    {
+        _selectedId = id;
+        _selected = await Dashboard.GetReportContentAsync(id);
+    }
+}

@@ -1,0 +1,195 @@
+@inject DashboardService Dashboard
+
+<div class="toolbar">
+    <label class="muted small" for="range">Window</label><Info Text="The period every chart and table on this tab covers." />
+    <select id="range" class="input input-sm" @bind="Days" @bind:after="LoadAsync">
+        <option value="7">7 days</option>
+        <option value="30">30 days</option>
+        <option value="90">90 days</option>
+        <option value="365">365 days</option>
+    </select>
+</div>
+
+@if (_data is null)
+{
+    <Skeleton Cards="2" />
+    return;
+}
+
+<div class="panel">
+    <h3>Overall score trend <Info Text="Each channel's overall AISO score (0–100) per audit: 40% on-page structure and 60% AI answer visibility." /></h3>
+    @if (_data.Trends.Count == 0)
+    {
+        <p class="muted">No audits in this window.</p>
+    }
+    else
+    {
+        <TrendChart Trends="_data.Trends" />
+    }
+</div>
+
+<div class="panel">
+    <h3>Visibility by AI engine <span class="muted small">(brand named or own site cited · own site cited)</span><Info Text="For each channel and engine: the bar is the share of answers that name the brand or cite its site; below it, the share that cite its own site, and n, the number of answers. Being cited is stronger than being named: it sends the customer to TEB." /></h3>
+    @if (_data.Engines.Count == 0)
+    {
+        <p class="muted">No answer-engine results in this window. Configure engine API keys for the worker.</p>
+    }
+    else
+    {
+        var engineNames = _data.Engines.Select(e => e.Engine).Distinct().Order(StringComparer.Ordinal).ToList();
+        <div class="table-scroll">
+            <table class="table engine-matrix">
+                <thead>
+                    <tr>
+                        <th>Channel</th>
+                        @foreach (var name in engineNames)
+                        {
+                            <th>@name</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var target in _data.Engines.Select(e => e.Target).Distinct())
+                    {
+                        <tr>
+                            <td>@target</td>
+                            @foreach (var name in engineNames)
+                            {
+                                var cell = _data.Engines.FirstOrDefault(e => e.Target == target && e.Engine == name);
+                                <td>
+                                    @if (cell is null)
+                                    {
+                                        <span class="muted">·</span>
+                                    }
+                                    else
+                                    {
+                                        <Bar Value="cell.Rate" />
+                                        <div class="muted small" title="Answers citing an owned site">cited @cell.CitedRate.ToString("0", CultureInfo.InvariantCulture)% · n=@cell.Evaluated</div>
+                                    }
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<div class="panel">
+    <h3>Sources AI engines cite <span class="muted small">(for your test prompts)</span><Info Text="The domains the engines linked to most when answering your test questions, and which engines cited them. Domains that aren't yours show where the engines get their information instead." /></h3>
+    <table class="table">
+        <thead><tr><th>Domain</th><th class="num">Citations</th><th>Cited by</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var d in _data.TopDomains)
+            {
+                <tr>
+                    <td class="mono">@d.Domain</td>
+                    <td class="num">@d.Citations</td>
+                    <td class="small">@string.Join(", ", d.Engines)</td>
+                    <td>@if (d.IsOwned) { <span class="chip chip-ok">your site</span> }</td>
+                </tr>
+            }
+            @if (_data.TopDomains.Count == 0)
+            {
+                <tr><td colspan="4" class="muted">No cited sources recorded yet.</td></tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+<div class="grid-2">
+    <div class="panel">
+        <h3>AI answer visibility by language <Info Text="How many answers named the brand, per channel and question language. A gap between languages points to content missing in one of them." /></h3>
+        <table class="table">
+            <thead><tr><th>Channel</th><th>Lang</th><th class="num">Mentioned</th><th>Rate</th></tr></thead>
+            <tbody>
+                @foreach (var l in _data.Languages)
+                {
+                    <tr>
+                        <td>@l.Target</td>
+                        <td class="mono">@l.LanguageCode</td>
+                        <td class="num">@l.Mentioned / @l.Evaluated</td>
+                        <td><Bar Value="l.Rate" /></td>
+                    </tr>
+                }
+                @if (_data.Languages.Count == 0)
+                {
+                    <tr><td colspan="4" class="muted">No prompt probes recorded yet.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="panel">
+        <h3>Recent audits <Info Text="The latest audit of each channel: status, overall score and how long it took (ms). Hover a row to see an error. Partially succeeded means some engine answers failed." /></h3>
+        <table class="table">
+            <thead><tr><th>When (UTC)</th><th>Channel</th><th>Status</th><th class="num">Score</th><th class="num">ms</th></tr></thead>
+            <tbody>
+                @foreach (var a in _data.RecentAudits)
+                {
+                    <tr title="@a.Error">
+                        <td class="mono small">@a.AtUtc.ToString("MM-dd HH:mm", CultureInfo.InvariantCulture)</td>
+                        <td>@a.Target</td>
+                        <td><span class="chip @StatusCss(a.Status)">@a.Status</span></td>
+                        <td class="num">@a.Overall.ToString("0.0", CultureInfo.InvariantCulture)</td>
+                        <td class="num muted">@a.DurationMs</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="panel">
+    <h3>On-page signal matrix <span class="muted small">(latest audit with page data, per channel)</span><Info Text="Every weighted on-page check, per channel: ✓ passed, ✗ failed, · not checked. Hover a cell for details and its weight. Failed checks with a high weight cost the most score." /></h3>
+    <div class="table-scroll">
+        <table class="table matrix">
+            <thead>
+                <tr>
+                    <th>Channel</th>
+                    @foreach (var name in _data.Signals.SignalNames)
+                    {
+                        <th class="rot"><span>@name</span></th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in _data.Signals.Rows)
+                {
+                    <tr>
+                        <td>@row.Target</td>
+                        @foreach (var name in _data.Signals.SignalNames)
+                        {
+                            if (row.Signals.TryGetValue(name, out var s))
+                            {
+                                <td class="cell @(s.Passed ? "pass" : "fail")" title="@s.Detail (weight @s.Weight)">@(s.Passed ? "✓" : "✗")</td>
+                            }
+                            else
+                            {
+                                <td class="cell na">·</td>
+                            }
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private AnalyticsData? _data;
+    private int Days { get; set; } = 30;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() => _data = await Dashboard.GetAnalyticsAsync(Days);
+
+    private static string StatusCss(AuditStatus s) => s switch
+    {
+        AuditStatus.Succeeded => "chip-ok",
+        AuditStatus.PartiallySucceeded => "chip-warn",
+        AuditStatus.Failed => "chip-bad",
+        _ => string.Empty,
+    };
+}

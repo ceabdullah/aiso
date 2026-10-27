@@ -1,0 +1,6 @@
+@* A small "i" next to a section title or label: hovering, focusing or tapping it explains the section (tooltip.js). *@
+<button type="button" class="info" data-tip="@Text" aria-label="@($"About this: {Text}")">i</button>
+
+@code {
+    [Parameter, EditorRequired] public string Text { get; set; } = string.Empty;
+}

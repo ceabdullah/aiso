@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Aiso.Migrations.SqlServer</RootNamespace>
+    <!-- Generated migration code is not hand-maintained. -->
+    <NoWarn>$(NoWarn);CA1861;CA1062;CA1707;IDE0005</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Aiso.Infrastructure\Aiso.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

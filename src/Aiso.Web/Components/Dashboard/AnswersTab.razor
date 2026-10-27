@@ -1,0 +1,214 @@
+@implements IDisposable
+@inject DashboardService Dashboard
+@inject DashboardEvents Events
+
+<div class="filters answers-filters" role="group" aria-label="Filter answers">
+    @foreach (var (key, label) in VisibilityFilters)
+    {
+        <button type="button" class="pill @(_visibility == key ? "on" : null)" aria-pressed="@(_visibility == key)" @onclick="() => SetVisibilityAsync(key)">@label</button>
+    }
+    <Info Text="Shows the brand: the answer names TEB or cites one of its sites. Brand missing: neither, so a customer asking this would not hear of TEB. Failed: the engine returned an error." />
+    <span class="filters-sep" aria-hidden="true"></span>
+    <select class="input input-sm" aria-label="Engine" @bind="_engine" @bind:after="LoadAsync">
+        <option value="">All engines</option>
+        @foreach (var (key, name) in _facets?.Engines ?? [])
+        {
+            <option value="@key">@name</option>
+        }
+    </select>
+    <select class="input input-sm" aria-label="Channel" @bind="_channel" @bind:after="LoadAsync">
+        <option value="">All channels</option>
+        @foreach (var (channelCode, name) in _facets?.Channels ?? [])
+        {
+            <option value="@channelCode">@name</option>
+        }
+    </select>
+    <select class="input input-sm" aria-label="Language" @bind="_language" @bind:after="LoadAsync">
+        <option value="">All languages</option>
+        @foreach (var lang in _facets?.Languages ?? [])
+        {
+            <option value="@lang">@lang</option>
+        }
+    </select>
+    <label class="search-box">
+        <Icon Name="search" />
+        <input class="input input-sm" type="search" placeholder="Search questions and answers" aria-label="Search questions and answers"
+               @bind="_search" @bind:after="LoadAsync" />
+    </label>
+</div>
+
+@if (_rows is null)
+{
+    <Skeleton Rows="4" />
+    return;
+}
+
+<p class="muted small result-count">
+    @(_rows.Count == DashboardService.AnswerPageSize ? $"Latest {_rows.Count} answers" : $"{_rows.Count} answer(s)")
+    @if (_rows.Count > 0)
+    {
+        <span>· @_rows.Count(r => r.IsVisible) show the brand · @_rows.Count(r => r.Error is null && !r.IsVisible) don't · @_rows.Count(r => r.Error is not null) failed</span>
+    }
+</p>
+
+@if (_rows.Count == 0)
+{
+    <div class="panel feed-empty">
+        <p><strong>No answers to show.</strong></p>
+        <p class="muted">Engine answers appear here after an audit with at least one AI engine switched on and holding an API key.</p>
+    </div>
+}
+
+<ol class="feed answers">
+    @foreach (var r in _rows)
+    {
+        <li @key="r.Id" class="post answer @(r.Error is not null ? "is-error" : r.IsVisible ? "is-confirmed" : "is-todo")">
+            <div class="post-body">
+                <div class="post-meta">
+                    <EngineBadge Key="@r.EngineKey" Name="@r.Engine" />
+                    <span class="muted small">· @r.Channel · <span class="mono">@r.LanguageCode</span> · @Ago(r.AtUtc)</span>
+                    <span class="spacer"></span>
+                    @if (r.Error is not null)
+                    {
+                        <span class="chip chip-bad" data-tip="The engine returned an error instead of an answer; it's shown below."><Icon Name="alert" Size="12" /> Failed</span>
+                    }
+                    else if (r.IsVisible)
+                    {
+                        <span class="chip chip-ok" data-tip="Named: the answer mentions the brand. Cited: it links to one of the brand's own sites. Both is best."><Icon Name="check" Size="12" /> @(r.MentionsBrand && r.CitesOwnedDomain ? "Named and cited" : r.MentionsBrand ? "Named" : "Cited")</span>
+                    }
+                    else
+                    {
+                        <span class="chip chip-warn" data-tip="The answer neither names the brand nor cites its sites."><Icon Name="x" Size="12" /> Brand missing</span>
+                    }
+                </div>
+
+                <h3 class="post-title answer-q"><Icon Name="prompts" Size="14" /> @r.Prompt</h3>
+
+                @if (r.Error is not null)
+                {
+                    <p class="post-evidence mono small muted">@Shorten(r.Error, 220)</p>
+                }
+                else if (!string.IsNullOrWhiteSpace(r.Excerpt))
+                {
+                    var expanded = _expanded.Contains(r.Id);
+                    <p class="answer-text @(expanded ? "expanded" : null)">
+                        @foreach (var (text, match) in Highlight(r))
+                        {
+                            if (match)
+                            {
+                                <mark>@text</mark>
+                            }
+                            else
+                            {
+                                @text
+                            }
+                        }
+                    </p>
+                    @if (r.Excerpt.Length > 360)
+                    {
+                        <button type="button" class="link-btn small" aria-expanded="@expanded" @onclick="() => Toggle(r.Id)">@(expanded ? "Show less" : "Show the whole answer")</button>
+                    }
+                }
+
+                @if (r.Sources.Count > 0)
+                {
+                    <div class="sources" aria-label="Sources the engine cited">
+                        <span class="muted small">Sources <Info Text="The pages this engine cited for the answer. Ticked ones are the brand's own sites." /></span>
+                        @foreach (var s in r.Sources.DistinctBy(s => s.Host).Take(12))
+                        {
+                            <a class="source-chip @(s.IsOwned ? "owned" : null)" href="@s.Url" target="_blank" rel="noopener noreferrer" title="@s.Url">
+                                @if (s.IsOwned) { <Icon Name="check" Size="12" /> } @s.Host
+                            </a>
+                        }
+                    </div>
+                }
+            </div>
+        </li>
+    }
+</ol>
+
+@code {
+    private static readonly (string Key, string Label)[] VisibilityFilters =
+        [("all", "All"), ("visible", "Shows the brand"), ("missing", "Brand missing"), ("errors", "Failed")];
+
+    private static readonly CompareInfo Compare = CultureInfo.GetCultureInfo("tr-TR").CompareInfo;
+
+    private readonly HashSet<Guid> _expanded = [];
+    private AnswerFacets? _facets;
+    private IReadOnlyList<AnswerRow>? _rows;
+    private string _visibility = "all";
+    private string _engine = string.Empty, _channel = string.Empty, _language = string.Empty, _search = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Events.AuditFinished += OnAuditFinishedAsync;
+        _facets = await Dashboard.GetAnswerFacetsAsync();
+        await LoadAsync();
+    }
+
+    private Task OnAuditFinishedAsync() => InvokeAsync(async () =>
+    {
+        _facets = await Dashboard.GetAnswerFacetsAsync();
+        await LoadAsync();
+        StateHasChanged();
+    });
+
+    private async Task LoadAsync() =>
+        _rows = await Dashboard.GetAnswersAsync(new AnswerFilter(Blank(_engine), Blank(_channel), Blank(_language), _visibility, Blank(_search)));
+
+    private async Task SetVisibilityAsync(string key)
+    {
+        _visibility = key;
+        await LoadAsync();
+    }
+
+    private void Toggle(Guid id)
+    {
+        if (!_expanded.Remove(id))
+        {
+            _expanded.Add(id);
+        }
+    }
+
+    // Splits the answer into plain and brand-keyword parts. Turkish-aware, case-insensitive (İ/ı safe).
+    private static List<(string Text, bool Match)> Highlight(AnswerRow r)
+    {
+        var text = AnswerText.ToPlain(r.Excerpt!);
+        var keywords = (r.MatchedKeywords.Count > 0 ? r.MatchedKeywords : r.BrandKeywords).Where(k => k.Length > 1).ToList();
+        var parts = new List<(string, bool)>();
+        var pos = 0;
+        while (pos < text.Length && keywords.Count > 0)
+        {
+            var (index, length) = keywords
+                .Select(k => (Index: Compare.IndexOf(text, k, pos, CompareOptions.IgnoreCase), k.Length))
+                .Where(m => m.Index >= 0)
+                .OrderBy(m => m.Index).ThenByDescending(m => m.Length)
+                .FirstOrDefault((-1, 0));
+            if (index < 0)
+            {
+                break;
+            }
+
+            if (index > pos) parts.Add((text[pos..index], false));
+            parts.Add((text.Substring(index, length), true));
+            pos = index + length;
+        }
+
+        if (pos < text.Length) parts.Add((text[pos..], false));
+        return parts;
+    }
+
+    private static string? Blank(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    private static string Shorten(string value, int max) => value.Length <= max ? value : value[..max] + "…";
+
+    private static string Ago(DateTime utc)
+    {
+        var span = DateTime.UtcNow - utc;
+        return span.TotalMinutes < 60 ? $"{(int)Math.Max(1, span.TotalMinutes)} min ago"
+            : span.TotalHours < 24 ? $"{(int)span.TotalHours} h ago"
+            : $"{(int)span.TotalDays} d ago";
+    }
+
+    public void Dispose() => Events.AuditFinished -= OnAuditFinishedAsync;
+}

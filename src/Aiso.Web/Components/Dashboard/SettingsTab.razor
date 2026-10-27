@@ -1,0 +1,144 @@
+@attribute [Authorize(Policy = AisoPolicies.Admin)]
+@inject Aiso.Infrastructure.Settings.ISystemSettingsService Settings
+
+<StatusMessage Message="@_message" IsError="_isError" />
+
+<div class="settings">
+    <div class="setting">
+        <label for="retention">Data retention <Info Text="How long audit records and the data/ snapshot folders are kept. Remediation plans are kept regardless." /></label>
+        <div class="slider-row">
+            <input id="retention" type="range" min="7" max="365" step="1" @bind="_retentionDays" @bind:event="oninput" />
+            <span class="slider-value">@_retentionDays days</span>
+        </div>
+        <p class="muted small">Audit logs and data/ snapshots older than this are purged by the maintenance sweep. Remediation plans are kept.</p>
+    </div>
+
+    <div class="setting">
+        <label for="cleanup">Maintenance sweep interval <Info Text="How often the worker deletes data older than the retention period." /></label>
+        <div class="slider-row">
+            <input id="cleanup" type="range" min="1" max="30" step="1" @bind="_cleanupDays" @bind:event="oninput" />
+            <span class="slider-value">every @_cleanupDays day(s)</span>
+        </div>
+    </div>
+
+    <div class="setting">
+        <label for="threshold">Visibility alert threshold <Info Text="A channel scoring below this after an audit sends an alert email and counts in Channels below threshold on the Summary tab." /></label>
+        <div class="slider-row">
+            <input id="threshold" type="range" min="0" max="100" step="1" @bind="_threshold" @bind:event="oninput" />
+            <span class="slider-value">@_threshold / 100</span>
+        </div>
+        <p class="muted small">An HTML alert email is sent when a channel's overall AISO score drops below this value.</p>
+    </div>
+
+    <div class="setting">
+        <label for="interval">Audit pipeline interval <Info Text="How often a full audit runs on its own: crawl the sites, read the App Store, ask every engine every question, write the plans. Shorter intervals cost more with paid engines." /></label>
+        <div class="slider-row">
+            <input id="interval" type="range" min="1" max="168" step="1" @bind="_auditHours" @bind:event="oninput" />
+            <span class="slider-value">every @_auditHours h</span>
+        </div>
+    </div>
+
+    <div class="setting">
+        <label for="recipients">Alert recipients <Info Text="Email addresses that get low-score alerts, separated by semicolons." /></label>
+        <input id="recipients" class="input" @bind="_recipients" placeholder="audit-team@bank.local; ciso-office@bank.local" maxlength="2000" />
+    </div>
+
+    <div class="setting">
+        <label for="search-country">AI engine search location <Info Text="Where the engines search from, so their answers match what customers in that place see." /></label>
+        <div class="location-grid">
+            <input id="search-country" class="input" @bind="_searchCountry" placeholder="TR" maxlength="2" aria-label="Country code" title="Two-letter country code, e.g. TR" />
+            <input class="input" @bind="_searchCity" placeholder="Istanbul" maxlength="100" aria-label="City" />
+            <input class="input" @bind="_searchRegion" placeholder="Istanbul" maxlength="100" aria-label="Region or province" />
+            <input class="input" @bind="_searchTimezone" placeholder="Europe/Istanbul" maxlength="64" aria-label="Time zone" />
+        </div>
+        <p class="muted small">Country code, city, region and time zone. ChatGPT, Claude and Perplexity search as a user in this place, so answers are closer to what local customers see. Gemini's Google Search grounding has no location option. Leave the country empty to search without a location.</p>
+    </div>
+
+    <div class="setting">
+        <label for="graphics-bg">Content graphics colours <Info Text="Used for the share images, LinkedIn carousels and App Store frames in the Content tab. Use a dark brand colour for the background: text on it is white." /></label>
+        <div class="color-row">
+            <label class="check"><input id="graphics-bg" type="color" @bind="_graphicsBackground" /> Background <span class="mono small">@_graphicsBackground</span></label>
+            <label class="check"><input type="color" @bind="_graphicsAccent" /> Accent <span class="mono small">@_graphicsAccent</span></label>
+        </div>
+    </div>
+
+    <div class="setting">
+        <label for="theme">Default theme for new users <Info Text="The theme for users who haven't picked one with the toggle in the header." /></label>
+        <select id="theme" class="input input-sm" @bind="_theme">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+        </select>
+    </div>
+</div>
+
+<div class="toolbar">
+    <button class="btn btn-primary" disabled="@_saving" @onclick="SaveAsync">Save settings</button>
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private int _retentionDays = 30, _cleanupDays = 7, _threshold = 60, _auditHours = 24;
+    private string _recipients = string.Empty, _theme = "dark";
+    private string _searchCountry = string.Empty, _searchCity = string.Empty, _searchRegion = string.Empty, _searchTimezone = string.Empty;
+    private string _graphicsBackground = "#14213D", _graphicsAccent = "#1FA67A";
+    private bool _saving;
+    private string? _message;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _retentionDays = await Settings.GetIntAsync(SettingKeys.DataRetentionDays);
+        _cleanupDays = await Settings.GetIntAsync(SettingKeys.CleanupIntervalDays);
+        _threshold = await Settings.GetIntAsync(SettingKeys.VisibilityAlertThreshold);
+        _auditHours = await Settings.GetIntAsync(SettingKeys.AuditIntervalHours);
+        _recipients = await Settings.GetStringAsync(SettingKeys.AlertRecipients);
+        _theme = await Settings.GetStringAsync(SettingKeys.DefaultUiTheme);
+        _searchCountry = await Settings.GetStringAsync(SettingKeys.SearchCountry);
+        _searchCity = await Settings.GetStringAsync(SettingKeys.SearchCity);
+        _searchRegion = await Settings.GetStringAsync(SettingKeys.SearchRegion);
+        _searchTimezone = await Settings.GetStringAsync(SettingKeys.SearchTimezone);
+        var style = Aiso.Infrastructure.Content.GraphicStyle.From(
+            await Settings.GetStringAsync(SettingKeys.GraphicsBackgroundColor), await Settings.GetStringAsync(SettingKeys.GraphicsAccentColor));
+        (_graphicsBackground, _graphicsAccent) = (style.Background, style.Accent);
+    }
+
+    private async Task SaveAsync()
+    {
+        var country = _searchCountry.Trim();
+        if (country.Length > 0 && (country.Length != 2 || !country.All(char.IsAsciiLetter)))
+        {
+            (_message, _isError) = ("Search location: use a two-letter country code such as TR, or leave it empty.", true);
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var user = (await AuthState).User.Identity?.Name;
+            var inv = CultureInfo.InvariantCulture;
+            await Settings.SetAsync(SettingKeys.DataRetentionDays, _retentionDays.ToString(inv), user);
+            await Settings.SetAsync(SettingKeys.CleanupIntervalDays, _cleanupDays.ToString(inv), user);
+            await Settings.SetAsync(SettingKeys.VisibilityAlertThreshold, _threshold.ToString(inv), user);
+            await Settings.SetAsync(SettingKeys.AuditIntervalHours, _auditHours.ToString(inv), user);
+            await Settings.SetAsync(SettingKeys.AlertRecipients, _recipients.Trim(), user);
+            await Settings.SetAsync(SettingKeys.DefaultUiTheme, _theme == "light" ? "light" : "dark", user);
+            await Settings.SetAsync(SettingKeys.SearchCountry, _searchCountry.Trim().ToUpperInvariant(), user);
+            await Settings.SetAsync(SettingKeys.SearchCity, _searchCity.Trim(), user);
+            await Settings.SetAsync(SettingKeys.SearchRegion, _searchRegion.Trim(), user);
+            await Settings.SetAsync(SettingKeys.SearchTimezone, _searchTimezone.Trim(), user);
+            var style = Aiso.Infrastructure.Content.GraphicStyle.From(_graphicsBackground, _graphicsAccent);
+            await Settings.SetAsync(SettingKeys.GraphicsBackgroundColor, style.Background.ToUpperInvariant(), user);
+            await Settings.SetAsync(SettingKeys.GraphicsAccentColor, style.Accent.ToUpperInvariant(), user);
+            (_message, _isError) = ("Settings saved. The worker applies them on its next cycle.", false);
+        }
+        catch (Exception ex)
+        {
+            (_message, _isError) = ($"Save failed: {ex.Message}", true);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

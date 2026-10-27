@@ -1,0 +1,89 @@
+@page "/"
+@attribute [Authorize(Policy = AisoPolicies.CanView)]
+@inject IJSRuntime JS
+@inject Aiso.Infrastructure.Settings.ISystemSettingsService Settings
+
+<PageTitle>AISO Control Center</PageTitle>
+
+<div class="page-head">
+    <div class="page-title">
+        <span class="page-icon" aria-hidden="true"><Icon Name="engines" Size="22" /></span>
+        <div>
+            <h1>AI Search Visibility</h1>
+            <p class="muted">How often ChatGPT, Gemini, Claude and Perplexity name and cite TEB's channels, and what to change.</p>
+        </div>
+    </div>
+</div>
+
+<nav class="tabs" role="tablist">
+    @foreach (var tab in VisibleTabs())
+    {
+        <button type="button" role="tab" class="tab @(tab.Key == _active ? "active" : null)"
+                aria-selected="@(tab.Key == _active)" data-tip="@tab.Tip" @onclick="() => _active = tab.Key">
+            <Icon Name="@tab.Key" /> @tab.Label
+        </button>
+    }
+</nav>
+
+<LiveRunStrip />
+
+<section class="tab-panel" role="tabpanel" @key="_active">
+    @switch (_active)
+    {
+        case "summary": <SummaryTab /> break;
+        case "suggestions": <SuggestionsTab /> break;
+        case "answers": <AnswersTab /> break;
+        case "seo": <SeoTab /> break;
+        case "content": <ContentTab /> break;
+        case "analytics": <AnalyticsTab /> break;
+        case "prompts": <PromptsTab /> break;
+        case "reports": <ReportsTab /> break;
+        case "engines": <EnginesTab /> break;
+        case "security": <SecurityTab /> break;
+        case "settings": <SettingsTab /> break;
+    }
+</section>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private string _active = "summary";
+    private bool _canEdit;
+    private bool _isAdmin;
+
+    private static readonly (string Key, string Label, string Policy, string Tip)[] Tabs =
+    [
+        ("summary", "Summary", AisoPolicies.CanView, "Each channel's latest score, how often each AI engine shows the brand, and which banks the engines name."),
+        ("suggestions", "Suggestions", AisoPolicies.CanView, "What to change to be named and cited more often, who owns it, ready-to-paste fixes, and whether the next audits confirm it."),
+        ("answers", "Answers", AisoPolicies.CanView, "The answers the AI engines gave to your test questions, with the sources they cited."),
+        ("seo", "SEO", AisoPolicies.CanView, "Technical SEO of each website from its latest crawl: health score, issues by page, sitemap and robots.txt, and which page targets each customer question."),
+        ("content", "Content", AisoPolicies.CanView, "The content loop: ideas from the audits, drafts written by the AI, review and approval, then the live link once your team publishes, until AI engines cite it."),
+        ("analytics", "Advanced Analytics", AisoPolicies.CanView, "Trends over time, visibility per engine and language, the most cited domains and every on-page check."),
+        ("prompts", "Test Prompts", AisoPolicies.CanEdit, "The customer questions asked to every AI engine on each audit, per channel and language."),
+        ("reports", "Reports", AisoPolicies.CanView, "Remediation plans written after each audit, as Markdown checklists you can download."),
+        ("engines", "AI Engines", AisoPolicies.Admin, "Switch AI engines on or off, choose models, set API keys and limit paid web searches."),
+        ("security", "Security Mappings", AisoPolicies.Admin, "Which Active Directory groups get the Viewer, Analyst or Administrator role."),
+        ("settings", "System Settings", AisoPolicies.Admin, "Audit schedule, alert threshold and recipients, data retention and the search location."),
+    ];
+
+    private IEnumerable<(string Key, string Label, string Policy, string Tip)> VisibleTabs() =>
+        Tabs.Where(t => t.Policy == AisoPolicies.CanView
+                        || (t.Policy == AisoPolicies.CanEdit && _canEdit)
+                        || (t.Policy == AisoPolicies.Admin && _isAdmin));
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthState).User;
+        _isAdmin = user.IsInRole(AisoPolicies.RoleClaim(AisoRole.Administrator));
+        _canEdit = _isAdmin || user.IsInRole(AisoPolicies.RoleClaim(AisoRole.Analyst));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var theme = await Settings.GetStringAsync(SettingKeys.DefaultUiTheme);
+            await JS.InvokeAsync<string>("aisoTheme.applyDefault", theme);
+        }
+    }
+}

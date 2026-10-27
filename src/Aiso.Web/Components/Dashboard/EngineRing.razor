@@ -1,0 +1,19 @@
+@* One engine's visibility for a channel: a ring filled to the share of answers that showed the brand. *@
+<div class="engine-ring @EngineStyle.Css(Rate.EngineKey ?? Rate.Engine) @(Rate.Simulated ? "simulated" : null)"
+     title="@($"{Rate.Visible} of {Rate.Evaluated} answers show the brand; {Rate.Cited} cite an owned site") @(Rate.AsOfUtc is { } at ? $"· answers from {at.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} UTC" : null) @(Rate.Simulated ? "· simulated: no web search, not scored" : null)">
+    <svg viewBox="0 0 36 36" role="img" aria-label="@($"{Rate.Engine}: {Rate.Rate:0}% visible")">
+        <circle class="ring-track" cx="18" cy="18" r="15.5" />
+        <circle class="ring-fill" cx="18" cy="18" r="15.5" pathLength="100"
+                style="@string.Create(CultureInfo.InvariantCulture, $"stroke-dasharray:{Rate.Rate:0.#} 100")" />
+    </svg>
+    <span class="ring-value"><CountUp Value="Rate.Rate" Decimals="0" />%</span>
+    <span class="ring-label">@Rate.Engine</span>
+    @if (Rate.AsOfUtc is { } asOf)
+    {
+        <span class="ring-date">@asOf.ToString("d MMM", CultureInfo.InvariantCulture)</span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public EngineRate Rate { get; set; } = default!;
+}

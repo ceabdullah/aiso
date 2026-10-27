@@ -1,0 +1,73 @@
+@attribute [Authorize(Policy = AisoPolicies.Admin)]
+@inject DashboardService Dashboard
+
+<div class="toolbar">
+    <span class="muted small">
+        Map Active Directory group common names (CN) to AISO roles. Changes apply within a minute — no deployment required.
+        Full DNs (<span class="mono">CN=…,OU=…</span>) and <span class="mono">DOMAIN\Group</span> are normalised to the CN on save.
+    </span>
+    <span class="spacer"></span>
+    <button class="btn btn-ghost" @onclick="() => _rows.Add(new RoleMappingEditModel())">+ Add mapping</button>
+    <button class="btn btn-primary" disabled="@_saving" @onclick="SaveAsync">Save mappings</button>
+</div>
+
+<StatusMessage Message="@_message" IsError="_isError" />
+
+<table class="table grid-edit">
+    <thead>
+        <tr><th>AD group CN <Info Text="The common name of the Active Directory group, e.g. AISO-Analysts. Members get the role on the right." /></th><th>Role <Info Text="Viewer: read only. Analyst: also edits test prompts and starts audits. Administrator: also engines, security and settings." /></th><th>Enabled <Info Text="Switch a mapping off to stop granting its role without deleting it." /></th><th>Notes</th><th></th></tr>
+    </thead>
+    <tbody>
+        @foreach (var row in _rows.Where(r => !r.IsDeleted))
+        {
+            <tr>
+                <td><input class="input mono" @bind="row.AdGroupCn" maxlength="256" placeholder="GG-AISO-Analysts" /></td>
+                <td>
+                    <select class="input" @bind="row.Role">
+                        @foreach (var role in Enum.GetValues<AisoRole>())
+                        {
+                            <option value="@role">@role</option>
+                        }
+                    </select>
+                </td>
+                <td><input type="checkbox" @bind="row.IsEnabled" aria-label="Enabled" /></td>
+                <td><input class="input" @bind="row.Notes" maxlength="512" /></td>
+                <td><button class="btn btn-danger btn-sm" @onclick="() => row.IsDeleted = true" title="Remove">✕</button></td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<p class="muted small">Role hierarchy: <strong>Administrator</strong> ⊃ <strong>Analyst</strong> (edit prompts, trigger runs) ⊃ <strong>Viewer</strong> (read-only). At least one enabled Administrator mapping is enforced to prevent lock-out.</p>
+
+@code {
+    private List<RoleMappingEditModel> _rows = [];
+    private bool _saving;
+    private string? _message;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync() => _rows = await Dashboard.GetRoleMappingsAsync();
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        try
+        {
+            await Dashboard.SaveRoleMappingsAsync(_rows);
+            _rows = await Dashboard.GetRoleMappingsAsync();
+            (_message, _isError) = ("Mappings saved.", false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            (_message, _isError) = (ex.Message, true);
+        }
+        catch (Exception ex)
+        {
+            (_message, _isError) = ($"Save failed: {ex.Message}", true);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

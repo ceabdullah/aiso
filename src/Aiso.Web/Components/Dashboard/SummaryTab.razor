@@ -1,0 +1,235 @@
+@implements IDisposable
+@inject DashboardService Dashboard
+@inject DashboardEvents Events
+
+@if (_summary is null)
+{
+    <Skeleton Kpis="4" Cards="3" />
+    return;
+}
+
+<div class="kpis">
+    <div class="kpi">
+        <div class="kpi-head"><span class="kpi-icon"><Icon Name="analytics" /></span><span class="kpi-label">Average AISO score</span><Info Text="The average of all channels' overall scores, 0–100. A channel's score is 40% on-page structure and 60% AI answer visibility; brand channels only have the answer part. Simulated engines aren't counted." /></div>
+        <div class="kpi-value"><ScoreBadge Value="AverageScore" Threshold="_summary.AlertThreshold" /></div>
+        <div class="kpi-foot muted">alert threshold @_summary.AlertThreshold</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-head"><span class="kpi-icon"><Icon Name="answers" /></span><span class="kpi-label">AI answer visibility</span><Info Text="Share of the latest answers from web-searching engines (ChatGPT, Gemini, Claude, Perplexity) that name the brand or cite one of its own sites. Simulated NVIDIA models appear in the rings but aren't counted here." /></div>
+        <div class="kpi-value">
+            @if (AnswerVisibility is { } av)
+            {
+                <CountUp Value="av" Decimals="0" /><span class="kpi-unit">%</span>
+            }
+            else
+            {
+                <span class="muted">—</span>
+            }
+        </div>
+        <div class="kpi-foot muted">@(AnswersMeasured == 0 ? "no engine answers yet" : $"of {AnswersMeasured} answers in the latest audits")</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-head"><span class="kpi-icon warn"><Icon Name="alert" /></span><span class="kpi-label">Channels below threshold</span><Info Text="Channels whose overall score is under the alert threshold set in System Settings. Each sends an alert email after its audit." /></div>
+        <div class="kpi-value"><CountUp Value="BelowThreshold" Decimals="0" /> <span class="muted">/ @_summary.Targets.Count</span></div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-head"><span class="kpi-icon"><Icon Name="clock" /></span><span class="kpi-label">Last audit</span><Info Text="When the last audit finished, and how many remediation plans (Reports tab) were written in the last 30 days. Audits run on the schedule in System Settings, or with Run audit now." /></div>
+        <div class="kpi-value small">@(_summary.LastRunUtc is { } last ? Ago(last) : "never")</div>
+        <div class="kpi-foot muted">@(_summary.LastRunUtc?.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture)) · @_summary.PlansPublished30d plan(s) in 30 days</div>
+    </div>
+</div>
+
+<div class="toolbar">
+    <AuthorizeView Policy="@AisoPolicies.CanEdit">
+        <button class="btn btn-primary" disabled="@(_summary.RunRequested || _busy)" @onclick="RequestRunAsync">
+            <Icon Name="play" /> @(_summary.RunRequested ? "Audit queued" : "Run audit now")
+        </button>
+    </AuthorizeView>
+    <button class="btn btn-ghost" @onclick="LoadAsync"><Icon Name="refresh" /> Refresh</button>
+</div>
+
+<div class="cards">
+    @foreach (var t in _summary.Targets)
+    {
+        <article class="card channel-card">
+            <header class="card-head">
+                <span class="channel-avatar kind-@t.ChannelKind.ToString().ToLowerInvariant()" aria-hidden="true"><Icon Name="@ChannelIcon(t.ChannelKind)" Size="18" /></span>
+                <div class="card-head-text">
+                    <div class="card-title">@t.DisplayName</div>
+                    <a class="muted small link-ext" href="@t.BaseUrl" target="_blank" rel="noopener">@Host(t.BaseUrl) <Icon Name="external" Size="12" /></a>
+                </div>
+                <span class="chip" data-tip="@ChannelTip(t.ChannelKind)">@ChannelLabel(t.ChannelKind)</span>
+            </header>
+
+            <div class="card-score">
+                <div>
+                    <ScoreBadge Value="t.OverallScore" Threshold="_summary.AlertThreshold" />
+                    @if (t.OverallScore is { } now && t.PreviousOverallScore is { } prev)
+                    {
+                        var delta = now - prev;
+                        <span class="delta @(delta >= 0 ? "up" : "down")" title="Change since the previous audit">
+                            <Icon Name="@(delta >= 0 ? "up" : "down")" Size="12" />@Math.Abs(delta).ToString("0.0", CultureInfo.InvariantCulture)
+                        </span>
+                    }
+                </div>
+                <Sparkline Points="t.Trend" />
+            </div>
+
+            <dl class="metrics">
+                @if (t.ChannelKind != TargetChannelKind.Brand)
+                {
+                    <dt>On-page structure <Info Text="@OnPageTip(t.ChannelKind)" /></dt><dd><Bar Value="t.OnPageScore" /></dd>
+                }
+                <dt>AI answer visibility <Info Text="Share of the latest answers from web-searching AI engines to this channel's test questions that name the brand or cite its own site." /></dt><dd><Bar Value="t.PromptVisibilityScore" /></dd>
+            </dl>
+
+            @if (t.Engines.Count > 0)
+            {
+                <div class="rings-head muted small">By AI engine <Info Text="One ring per engine: the share of its latest answers that name the brand or cite its site. Hover a ring for the counts. Faded rings with italic names are simulated engines: they answer from memory without searching the web, so they aren't scored." /></div>
+                <div class="engine-rings" aria-label="Visibility by AI engine, latest audit">
+                    @foreach (var e in t.Engines)
+                    {
+                        <EngineRing Rate="e" />
+                    }
+                </div>
+            }
+            else
+            {
+                <p class="muted small no-engines"><Icon Name="engines" Size="14" /> No AI engine answers yet: only the page was checked.</p>
+            }
+
+            <footer class="card-foot muted small">
+                <Icon Name="prompts" Size="12" /> @t.ActivePrompts test question(s) ·
+                @(t.LastAuditUtc is { } at ? $"audited {Ago(at)}" : "not audited yet")
+                @if (t.LastStatus == AuditStatus.PartiallySucceeded)
+                {
+                    <span class="chip chip-warn" title="Some engine answers failed in this audit">partial</span>
+                }
+            </footer>
+        </article>
+    }
+</div>
+
+<div class="panel viz-panel">
+    <div class="panel-head">
+        <h3>AI engine visibility over time <Info Text="For each engine, the share of each day's answers, across all channels, that name the brand or cite its site. Engines marked * are simulated and not scored. A falling line means that engine is showing the brand less often." /></h3>
+        <span class="muted small">Share of answers, all channels, that name the brand or cite its site</span>
+        <span class="spacer"></span>
+        <select class="input input-sm" aria-label="Time range" @bind="Days" @bind:after="LoadTrendAsync">
+            <option value="7">7 days</option>
+            <option value="30">30 days</option>
+            <option value="90">90 days</option>
+        </select>
+    </div>
+    <EngineTrendChart Series="_engineTrend" />
+</div>
+
+@if (_brand is not null)
+{
+    <BrandInsightsPanel Insights="_brand" />
+}
+
+@code {
+    private DashboardSummary? _summary;
+    private IReadOnlyList<EngineSeries> _engineTrend = [];
+    private BrandInsights? _brand;
+    private bool _busy;
+    private int Days { get; set; } = 30;
+
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private decimal? AverageScore
+    {
+        get
+        {
+            var scored = _summary!.Targets.Where(t => t.OverallScore is not null).Select(t => t.OverallScore!.Value).ToList();
+            return scored.Count == 0 ? null : Math.Round(scored.Average(), 1);
+        }
+    }
+
+    // Web-searching engines only, like the scores; simulated engines are shown in the rings but not counted here.
+    private int AnswersMeasured => _summary!.Targets.Sum(t => t.Engines.Where(e => !e.Simulated).Sum(e => e.Evaluated));
+
+    private decimal? AnswerVisibility => AnswersMeasured == 0 ? null
+        : Math.Round(100m * _summary!.Targets.Sum(t => t.Engines.Where(e => !e.Simulated).Sum(e => e.Visible)) / AnswersMeasured, 0);
+
+    private int BelowThreshold => _summary!.Targets.Count(t => t.OverallScore < _summary.AlertThreshold);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Events.AuditFinished += OnAuditFinishedAsync;
+        await LoadAsync();
+    }
+
+    private Task OnAuditFinishedAsync() => InvokeAsync(async () =>
+    {
+        await LoadAsync();
+        StateHasChanged();
+    });
+
+    private async Task LoadAsync()
+    {
+        _summary = await Dashboard.GetSummaryAsync();
+        _brand = await Dashboard.GetBrandInsightsAsync();
+        await LoadTrendAsync();
+    }
+
+    private async Task LoadTrendAsync() => _engineTrend = await Dashboard.GetEngineTrendAsync(Days);
+
+    private async Task RequestRunAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Dashboard.RequestRunAsync((await AuthState).User.Identity?.Name);
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string Host(string url) => Uri.TryCreate(url, UriKind.Absolute, out var u) ? u.Host + (u.AbsolutePath.Length > 1 ? "/…" : "") : url;
+
+    private static string Ago(DateTime utc)
+    {
+        var span = DateTime.UtcNow - utc;
+        return span.TotalMinutes < 1 ? "just now"
+            : span.TotalMinutes < 60 ? $"{(int)span.TotalMinutes} min ago"
+            : span.TotalHours < 24 ? $"{(int)span.TotalHours} h ago"
+            : $"{(int)span.TotalDays} days ago";
+    }
+
+    private static string ChannelIcon(TargetChannelKind kind) => kind switch
+    {
+        TargetChannelKind.MobileAppStore => "phone",
+        TargetChannelKind.CoreWebPortal => "bank",
+        TargetChannelKind.Brand => "engines",
+        _ => "globe",
+    };
+
+    private static string ChannelTip(TargetChannelKind kind) => kind switch
+    {
+        TargetChannelKind.CoreWebPortal => "The bank's main website: its pages are crawled and checked, and the engines are asked this channel's questions.",
+        TargetChannelKind.DigitalChannel => "A product website: its pages are crawled and checked, and the engines are asked this channel's questions.",
+        TargetChannelKind.MobileAppStore => "The app's public App Store listing: rating, reviews, last update and description, compared with peer bank apps.",
+        TargetChannelKind.Brand => "General questions about the bank, not tied to one site: how the engines describe TEB and which banks they name instead.",
+        _ => kind.ToString(),
+    };
+
+    private static string OnPageTip(TargetChannelKind kind) => kind == TargetChannelKind.MobileAppStore
+        ? "Weighted checks on the App Store listing: rating, number of ratings, recent reviews, last update, description and structured data."
+        : "Weighted checks of how easily AI crawlers can read and quote the page: robots.txt access, title, meta description, headings, schema.org markup, FAQ, language tags and more. Advanced Analytics lists each check.";
+
+    private static string ChannelLabel(TargetChannelKind kind) => kind switch
+    {
+        TargetChannelKind.CoreWebPortal => "Web portal",
+        TargetChannelKind.DigitalChannel => "Digital channel",
+        TargetChannelKind.MobileAppStore => "iOS App Store",
+        TargetChannelKind.Brand => "Brand",
+        _ => kind.ToString(),
+    };
+
+    public void Dispose() => Events.AuditFinished -= OnAuditFinishedAsync;
+}

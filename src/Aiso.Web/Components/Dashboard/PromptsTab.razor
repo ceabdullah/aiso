@@ -1,0 +1,91 @@
+@inject DashboardService Dashboard
+
+<div class="toolbar">
+    <label class="muted small" for="target">Channel</label><Info Text="Each channel has its own test questions. On every audit, each active question is asked to every switched-on AI engine." />
+    <select id="target" class="input input-sm" @bind="TargetId" @bind:after="LoadAsync">
+        @foreach (var t in _targets)
+        {
+            <option value="@t.Id">@t.Name</option>
+        }
+    </select>
+    <span class="spacer"></span>
+    <button class="btn btn-ghost" @onclick="Add">+ Add prompt</button>
+    <button class="btn btn-primary" disabled="@_saving" @onclick="SaveAsync">Save changes</button>
+</div>
+
+<StatusMessage Message="@_message" IsError="_isError" />
+
+<p class="muted small">
+    Prompts are replayed against the LLM gateway on every audit; the answer is checked for the channel's brand keywords.
+    Write them the way a customer would ask an AI assistant, in the customer's language.
+</p>
+
+<div class="prompt-list">
+    @foreach (var p in _prompts.Where(p => !p.IsDeleted))
+    {
+        <div class="prompt-row @(p.IsActive ? null : "inactive")">
+            <textarea class="input prompt-text" rows="2" maxlength="2000" @bind="p.PromptText" placeholder="e.g. Hangi banka en iyi mobil uygulamaya sahip?"></textarea>
+            <div class="prompt-meta">
+                <select class="input input-sm" @bind="p.LanguageCode" aria-label="Language">
+                    @foreach (var lang in DashboardService.SupportedLanguages)
+                    {
+                        <option value="@lang">@lang</option>
+                    }
+                </select>
+                <input class="input input-sm" @bind="p.Category" placeholder="category" maxlength="64" aria-label="Category" data-tip="A free label to group questions, e.g. loans or mobile app." />
+                <label class="check" data-tip="Only active questions are asked. Switch one off to keep it without asking it."><input type="checkbox" @bind="p.IsActive" /> active</label>
+                <button class="btn btn-danger btn-sm" @onclick="() => p.IsDeleted = true" title="Remove">✕</button>
+            </div>
+        </div>
+    }
+    @if (!_prompts.Any(p => !p.IsDeleted))
+    {
+        <p class="muted">No prompts for this channel yet.</p>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<(Guid Id, string Name)> _targets = [];
+    private List<PromptEditModel> _prompts = [];
+    private Guid TargetId { get; set; }
+    private bool _saving;
+    private string? _message;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _targets = await Dashboard.GetTargetsAsync();
+        if (_targets.Count > 0)
+        {
+            TargetId = _targets[0].Id;
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _prompts = await Dashboard.GetPromptsAsync(TargetId);
+        _message = null;
+    }
+
+    private void Add() => _prompts.Add(new PromptEditModel { TargetProfileId = TargetId });
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        try
+        {
+            await Dashboard.SavePromptsAsync(TargetId, _prompts);
+            await LoadAsync();
+            (_message, _isError) = ("Prompts saved. They will be used on the next audit run.", false);
+        }
+        catch (Exception ex)
+        {
+            (_message, _isError) = ($"Save failed: {ex.Message}", true);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}
